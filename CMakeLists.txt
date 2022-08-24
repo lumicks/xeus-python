@@ -10,6 +10,8 @@
 
 cmake_minimum_required(VERSION 3.20)
 project(xeus-python)
+list(APPEND CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR}/generators)
+find_package(embedded_python)
 
 set(XEUS_PYTHON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 

@@ -21,36 +21,14 @@ if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
     find_package(xeus-python REQUIRED CONFIG)
 endif ()
 
-message(STATUS "Forcing tests build type to Release")
-set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
-
-include(CheckCXXCompilerFlag)
-
-string(TOUPPER "${CMAKE_BUILD_TYPE}" U_CMAKE_BUILD_TYPE)
-
-if(CMAKE_CXX_COMPILER_ID MATCHES Clang OR CMAKE_CXX_COMPILER_ID MATCHES GNU OR CMAKE_CXX_COMPILER_ID MATCHES Intel)
-    add_compile_options(-Wunused-parameter -Wextra -Wreorder -Wconversion -Wsign-conversion)
-
-    CHECK_CXX_COMPILER_FLAG(-march=native HAS_MARCH_NATIVE)
-    if (HAS_MARCH_NATIVE)
-        add_compile_options(-march=native)
-    endif()
-endif()
-
-if(CMAKE_CXX_COMPILER_ID MATCHES MSVC)
-    add_compile_options(/EHsc /MP /bigobj)
-    set(CMAKE_EXE_LINKER_FLAGS /MANIFEST:NO)
-endif()
-
 find_package(Threads)
 find_package(doctest)
-
-include_directories(${GTEST_INCLUDE_DIRS} SYSTEM)
 
 set(XEUS_PYTHON_TESTS
     main.cpp
     ../src/xutils.cpp
     test_debugger.cpp
+    test_kernel.cpp
     xeus_client.hpp
     xeus_client.cpp
 )
@@ -70,8 +48,11 @@ set_target_properties(test_xeus_python PROPERTIES
 )
 
 include_directories(${PYTHON_INCLUDE_DIRS})
-target_link_libraries(test_xeus_python ${PYTHON_LIBRARIES} xeus-zmq doctest::doctest ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(test_xeus_python ${PYTHON_LIBRARIES} xeus-zmq doctest::doctest ${CMAKE_THREAD_LIBS_INIT} pybind11::embed pybind11_json::pybind11_json)
 target_include_directories(test_xeus_python PRIVATE ${XEUS_PYTHON_INCLUDE_DIR})
 
 add_custom_target(xtest COMMAND test_xeus_python DEPENDS test_xeus_python)
 
+target_compile_definitions(test_xeus_python PRIVATE SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+add_dependencies(test_xeus_python xpython)

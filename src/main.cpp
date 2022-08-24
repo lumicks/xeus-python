@@ -9,10 +9,11 @@
 ****************************************************************************/
 
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
+#include <signal.h>
 #include <string>
 #include <utility>
-#include <signal.h>
 
 #ifdef __GNUC__
 #include <stdio.h>
@@ -75,46 +76,22 @@ int main(int argc, char* argv[])
 
     PyConfig config;
     PyConfig_InitPythonConfig(&config);
-    // config.isolated = 1;
-
-    // Setting Program Name
-    static const std::string executable(xpyt::get_python_path());
-    static const std::wstring wexecutable(executable.cbegin(), executable.cend());
-    config.program_name = const_cast<wchar_t*>(wexecutable.c_str());
 
     // Setting Python Home
-    static const std::string pythonhome{ xpyt::get_python_prefix() };
-    static const std::wstring wstr(pythonhome.cbegin(), pythonhome.cend());;
-    config.home = const_cast<wchar_t*>(wstr.c_str());
-    xpyt::print_pythonhome();
-
-    // Implicitly pre-initialize Python
-    status = PyConfig_SetBytesArgv(&config, argc, argv);
-    if (PyStatus_Exception(status)) {
-        std::cerr << "Error:" << status.err_msg << std::endl;
+    auto stream = std::ifstream(".embedded_python.home");
+    if (!stream.is_open()) {
+        stream = std::ifstream("../.embedded_python.home");
     }
+    using It = std::istreambuf_iterator<char>;
+    const auto embedded_home = std::string{It{stream}, It{}};
+    PyConfig_SetBytesString(&config, &config.home, embedded_home.c_str());
 
-    // Setting argv
-    wchar_t** argw = new wchar_t*[size_t(argc)];
-    for(auto i = 0; i < argc; ++i)
-    {
-        argw[i] = Py_DecodeLocale(argv[i], nullptr);
-    }
-    PyWideStringList py_argw;
-    py_argw.length = argc;
-    py_argw.items = argw;
-
-    config.argv = py_argw;
-    config.parse_argv = 1;
-
-    for(auto i = 0; i < argc; ++i)
-    {
-        PyMem_RawFree(argw[i]);
-    }
-    delete[] argw;
+    // Setting Program Name
+    const auto executable = embedded_home + "/bin/python3";
+    PyConfig_SetBytesString(&config, &config.program_name, executable.c_str());
 
     // Instantiating the Python interpreter
-    py::scoped_interpreter guard;
+    py::scoped_interpreter guard{&config};
 
     std::unique_ptr<xeus::xcontext> context = xeus::make_zmq_context();
 
