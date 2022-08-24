@@ -1,0 +1,4 @@
+xeus-python-shell
+ipympl
+pytest
+jupyter_kernel_test

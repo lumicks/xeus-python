@@ -80,8 +80,8 @@ int main(int argc, char* argv[])
     Py_SetProgramName(const_cast<wchar_t*>(wexecutable.c_str()));
 
     // Setting PYTHONHOME
-    xpyt::set_pythonhome();
-    xpyt::print_pythonhome();
+    //xpyt::set_pythonhome();
+    //xpyt::print_pythonhome();
 
     // Instanciating the Python interpreter
     py::scoped_interpreter guard;

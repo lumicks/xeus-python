@@ -490,11 +490,11 @@ bool debugger_client::print_code_variable(const std::string& expected, int& seq)
     for(auto it = ar.begin(); it != ar.end() && !var_found; ++it)
     {
         auto d = *it;
-        name = d["name"];
+        name = d["name"].get<std::string>();
         if(name == "i")
         {
             var_found = true;
-            value = d["value"];
+            value = d["value"].get<std::string>();
         }
     }
 
@@ -1133,7 +1133,7 @@ void dump_connection_file()
 void start_kernel()
 {
     dump_connection_file();
-    std::string cmd = "xpython -f " + KERNEL_JSON + "&";
+    std::string cmd = "../xpython -f " + KERNEL_JSON + "&";
     int ret2 = std::system(cmd.c_str());
     std::this_thread::sleep_for(2s);
 }

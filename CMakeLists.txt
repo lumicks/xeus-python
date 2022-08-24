@@ -10,6 +10,7 @@
 
 cmake_minimum_required(VERSION 3.4.3)
 project(xeus-python)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_BINARY_DIR})
 
 set(XEUS_PYTHON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -68,7 +69,7 @@ OPTION(XPYT_USE_SHARED_XEUS_PYTHON "Link xpython and xpython_extension with the 
 OPTION(XPYT_EMSCRIPTEN_WASM_BUILD "Build for wasm with emscripten" OFF)
 
 # Test options
-OPTION(XPYT_BUILD_TESTS "xeus-python test suite" OFF)
+OPTION(XPYT_BUILD_TESTS "xeus-python test suite" ON)
 
 function(cat IN_FILE OUT_FILE)
   file(READ ${IN_FILE} CONTENTS)
