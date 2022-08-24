@@ -10,6 +10,7 @@
 
 cmake_minimum_required(VERSION 3.4.3)
 project(xeus-python)
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_BINARY_DIR})
 
 set(XEUS_PYTHON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
@@ -323,7 +324,7 @@ macro(xpyt_create_target target_name src headers linkage output_name)
         set(XPYT_XEUS_TARGET xeus-static)
     endif ()
 
-    target_link_libraries(${target_name} PUBLIC ${XPYT_XEUS_TARGET} xtl PRIVATE pybind11::pybind11 pybind11_json)
+    target_link_libraries(${target_name} PUBLIC ${XPYT_XEUS_TARGET} xtl PRIVATE pybind11::pybind11 pybind11_json::pybind11_json)
     if (WIN32 OR CYGWIN)
         target_link_libraries(${target_name} PRIVATE ${PYTHON_LIBRARIES})
     elseif (APPLE)
