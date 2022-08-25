@@ -251,17 +251,16 @@ namespace xpyt
 {
     py::module get_kernel_module(bool raw_mode /*false*/)
     {
-
-        static py::module kernel_module;
-        if (raw_mode)
-        {
-            kernel_module = xpyt_raw::get_kernel_module_impl();
-        }
-        else
-        {
-
-            kernel_module = xpyt_ipython::get_kernel_module_impl();
-        }
+        static py::module kernel_module = [raw_mode] {
+            if (raw_mode)
+            {
+                return xpyt_raw::get_kernel_module_impl();
+            }
+            else
+            {
+                return xpyt_ipython::get_kernel_module_impl();
+            }
+        }();
 
         return kernel_module;
     }

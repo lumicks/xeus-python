@@ -25,32 +25,12 @@ namespace py = pybind11;
 namespace xpyt
 {
 
-    /***********************
-     * xstream declaration *
-     ***********************/
-
-    class xstream
-    {
-    public:
-
-        xstream(std::string stream_name);
-        virtual ~xstream();
-
-        void write(const std::string& message);
-        void flush();
-        bool isatty();
-
-    private:
-
-        std::string m_stream_name;
-    };
-
     /**************************
      * xstream implementation *
      **************************/
 
-    xstream::xstream(std::string stream_name)
-        : m_stream_name(stream_name)
+    xstream::xstream(std::string stream_name, xeus::xinterpreter* interpreter)
+        : m_stream_name(stream_name), m_interpreter(interpreter)
     {
     }
 
@@ -60,7 +40,7 @@ namespace xpyt
 
     void xstream::write(const std::string& message)
     {
-        xeus::get_interpreter().publish_stream(m_stream_name, message);
+        m_interpreter->publish_stream(m_stream_name, message);
     }
 
     void xstream::flush()
@@ -117,7 +97,6 @@ namespace xpyt
         py::module stream_module = create_module("stream");
 
         py::class_<xstream>(stream_module, "Stream")
-            .def(py::init<std::string>())
             .def("write", &xstream::write)
             .def("flush", &xstream::flush)
             .def("isatty", &xstream::isatty);
