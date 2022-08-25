@@ -324,10 +324,9 @@ namespace xpyt
     void interpreter::redirect_output()
     {
         py::module sys = py::module::import("sys");
-        py::module stream_module = get_stream_module();
 
-        sys.attr("stdout") = stream_module.attr("Stream")("stdout");
-        sys.attr("stderr") = stream_module.attr("Stream")("stderr");
+        sys.attr("stdout") = xstream("stdout", this);
+        sys.attr("stderr") = xstream("stderr", this);
     }
 
     void interpreter::instanciate_ipython_shell()

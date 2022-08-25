@@ -51,6 +51,7 @@ set(XEUS_PYTHON_TESTS
     main.cpp
     ../src/xutils.cpp
     test_debugger.cpp
+    test_multi_kernel.cpp
     xeus_client.hpp
     xeus_client.cpp
 )
@@ -68,7 +69,7 @@ set_target_properties(test_xeus_python PROPERTIES
 )
 
 include_directories(${PYTHON_INCLUDE_DIRS})
-target_link_libraries(test_xeus_python ${PYTHON_LIBRARIES} xeus-zmq doctest::doctest ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(test_xeus_python ${PYTHON_LIBRARIES} xeus-zmq doctest::doctest ${CMAKE_THREAD_LIBS_INIT} xeus-python-static)
 target_include_directories(test_xeus_python PRIVATE ${XEUS_PYTHON_INCLUDE_DIR})
 
 add_custom_target(xtest COMMAND test_xeus_python DEPENDS test_xeus_python)
