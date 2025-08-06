@@ -25,7 +25,7 @@ namespace xpyt
         using cpp_callback_type = std::function<void(const xeus::xmessage&)>;
         using buffers_sequence = xeus::buffer_sequence;
 
-        xcomm(const py::object& target_name, const py::object& data, const py::object& metadata, const py::object& buffers, const py::kwargs& kwargs);
+        xcomm(xeus::xinterpreter* xint, const py::object& target_name, const py::object& data, const py::object& metadata, const py::object& buffers, const py::kwargs& kwargs);
         xcomm(xeus::xcomm&& comm);
         xcomm(xcomm&& comm) = default;
         virtual ~xcomm();
@@ -40,21 +40,27 @@ namespace xpyt
 
     private:
 
-        xeus::xtarget* target(const py::object& target_name) const;
+        xeus::xtarget* target(xeus::xinterpreter* xint, const py::object& target_name) const;
         xeus::xguid id(const py::kwargs& kwargs) const;
         cpp_callback_type cpp_callback(const python_callback_type& callback) const;
 
         xeus::xcomm m_comm;
     };
 
-    struct xcomm_manager
+    class xcomm_manager
     {
-        xcomm_manager() = default;
+    public:
+        xcomm_manager(xeus::xinterpreter* xint) : m_xint(xint) {}
 
         void register_target(const py::str& target_name, const py::object& callback);
+
+    private:
+        xeus::xinterpreter* m_xint;
     };
 
-    py::module get_comm_module();
+    py::handle bind_comm();
+    py::handle bind_comm_manager();
+    py::module make_comm_module(xeus::xinterpreter* xint);
 
 }
 

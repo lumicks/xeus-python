@@ -25,6 +25,7 @@
 #include "pybind11_json/pybind11_json.hpp"
 
 #include "xeus-python/xinterpreter.hpp"
+
 #include "xeus-python/xeus_python_config.hpp"
 #include "xeus-python/xtraceback.hpp"
 #include "xeus-python/xutils.hpp"
@@ -51,6 +52,12 @@ namespace xpyt
 
     interpreter::~interpreter()
     {
+        py::gil_scoped_acquire acquire;
+        m_ipython_shell_app = {};
+        m_ipython_shell = {};
+        m_displayhook = {};
+        m_logger = {};
+        m_terminal_stream = {};
     }
 
     void interpreter::configure_impl()
@@ -67,11 +74,10 @@ namespace xpyt
         py::module sys = py::module::import("sys");
         py::module logging = py::module::import("logging");
 
-        py::module display_module = get_display_module();
-        py::module traceback_module = get_traceback_module();
-        py::module stream_module = get_stream_module();
-        py::module comm_module = get_comm_module();
-        py::module kernel_module = get_kernel_module();
+        py::module display_module = make_display_module(this);
+        py::module traceback_module = make_traceback_module();
+        py::module comm_module = make_comm_module(this);
+        py::module kernel_module = make_kernel_module(this);
 
         // Old approach: ipykernel provides the comm
         sys.attr("modules")["ipykernel.comm"] = comm_module;
@@ -84,8 +90,8 @@ namespace xpyt
         m_ipython_shell = m_ipython_shell_app.attr("shell");
 
         // Setting kernel property owning the CommManager and get_parent
-        m_ipython_shell.attr("kernel") = kernel_module.attr("XKernel")();
-        m_ipython_shell.attr("kernel").attr("comm_manager") = comm_module.attr("CommManager")();
+        m_ipython_shell.attr("kernel") = make_kernel(this);
+        m_ipython_shell.attr("kernel").attr("comm_manager") = xcomm_manager(this);
 
         // Initializing the DisplayPublisher
         m_ipython_shell.attr("display_pub").attr("publish_display_data") = display_module.attr("publish_display_data");
@@ -97,7 +103,7 @@ namespace xpyt
 
         // Needed for redirecting logging to the terminal
         m_logger = m_ipython_shell_app.attr("log");
-        m_terminal_stream = stream_module.attr("TerminalStream")();
+        m_terminal_stream = make_stream_module().attr("TerminalStream")();
         m_logger.attr("handlers") = py::list(0);
         m_logger.attr("addHandler")(logging.attr("StreamHandler")(m_terminal_stream));
 
@@ -109,8 +115,6 @@ namespace xpyt
         {
             redirect_output();
         }
-
-        py::module context_module = get_request_context_module();
     }
 
     void interpreter::execute_request_impl(send_reply_callback cb,
@@ -367,47 +371,12 @@ namespace xpyt
         return reply;
     }
 
-    void interpreter::set_request_context(xeus::xrequest_context context)
-    {
-        py::gil_scoped_acquire acquire;
-        py::module context_module = get_request_context_module();
-        context_module.attr("set_request_context")(context);
-    }
-
-    namespace
-    {
-        xeus::xrequest_context empty_request_context{};
-    }
-
-    const xeus::xrequest_context& interpreter::get_request_context() const noexcept
-    {
-        py::gil_scoped_acquire acquire;
-        py::module context_module = get_request_context_module();
-        // When the debugger is started, it send some python code to execute, that triggers
-        // a call to publish_stream, and ultimately to this function. However:
-        // - we are out of the handling of an execute_request, therefore set_request_context
-        // has not been called
-        // - we cannot set it from another thread (the context of the context variable would
-        // be different)
-        // Therefore, we have to catch the exception thrown when the context variable is empty.
-        try
-        {
-            py::object res = context_module.attr("get_request_context")();
-            return *(res.cast<xeus::xrequest_context*>());
-        }
-        catch (py::error_already_set& e)
-        {
-            return empty_request_context;
-        }
-    }
-
     void interpreter::redirect_output()
     {
         py::module sys = py::module::import("sys");
-        py::module stream_module = get_stream_module();
 
-        sys.attr("stdout") = stream_module.attr("Stream")("stdout");
-        sys.attr("stderr") = stream_module.attr("Stream")("stderr");
+        sys.attr("stdout") = make_stream("stdout", this);
+        sys.attr("stderr") = make_stream("stderr", this);
     }
 
     void interpreter::instanciate_ipython_shell()

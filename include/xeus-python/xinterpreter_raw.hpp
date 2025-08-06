@@ -67,9 +67,6 @@ namespace xpyt
 
         void shutdown_request_impl() override;
 
-        void set_request_context(xeus::xrequest_context context) override;
-        const xeus::xrequest_context& get_request_context() const noexcept override;
-
         void redirect_output();
 
         py::object m_displayhook;

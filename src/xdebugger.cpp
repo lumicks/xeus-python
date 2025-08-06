@@ -70,6 +70,9 @@ namespace xpyt
 
     debugger::~debugger()
     {
+        py::gil_scoped_acquire acquire;
+        m_pydebugger = {};
+
         delete p_debugpy_client;
         p_debugpy_client = nullptr;
     }

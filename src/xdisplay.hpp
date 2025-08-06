@@ -18,7 +18,7 @@ namespace py = pybind11;
 
 namespace xpyt
 {
-    py::module get_display_module(bool raw_mode = false);
+    py::module make_display_module(xeus::xinterpreter* xint, bool raw_mode = false);
 }
 
 #endif

@@ -155,7 +155,7 @@ namespace xpyt
      * traceback module *
      ********************/
 
-    py::module get_traceback_module_impl()
+    py::module make_traceback_module()
     {
         py::module traceback_module = create_module("traceback");
 
@@ -173,9 +173,4 @@ namespace xpyt
         return traceback_module;
     }
 
-    py::module get_traceback_module()
-    {
-        static py::module traceback_module = get_traceback_module_impl();
-        return traceback_module;
-    }
 }

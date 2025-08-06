@@ -37,8 +37,8 @@ namespace xpyt
      * xcomm implementation *
      ************************/
 
-    xcomm::xcomm(const py::object& target_name, const py::object& data, const py::object& metadata, const py::object& buffers, const py::kwargs& kwargs)
-        : m_comm(target(target_name), id(kwargs))
+    xcomm::xcomm(xeus::xinterpreter* xint, const py::object& target_name, const py::object& data, const py::object& metadata, const py::object& buffers, const py::kwargs& kwargs)
+        : m_comm(target(xint, target_name), id(kwargs))
     {
         m_comm.open(metadata, data, pylist_to_cpp_buffers(buffers));
     }
@@ -82,9 +82,9 @@ namespace xpyt
         m_comm.on_close(cpp_callback(callback));
     }
 
-    xeus::xtarget* xcomm::target(const py::object& target_name) const
+    xeus::xtarget* xcomm::target(xeus::xinterpreter* xint, const py::object& target_name) const
     {
-        return xeus::get_interpreter().comm_manager().target(target_name.cast<std::string>());
+        return xint->comm_manager().target(target_name.cast<std::string>());
     }
 
     xeus::xguid xcomm::id(const py::kwargs& kwargs) const
@@ -115,7 +115,7 @@ namespace xpyt
             XPYT_HOLDING_GIL(callback(xcomm(std::move(comm)), cppmessage_to_pymessage(msg)));
         };
 
-        xeus::get_interpreter().comm_manager().register_comm_target(
+        m_xint->comm_manager().register_comm_target(
             static_cast<std::string>(target_name), target_callback
         );
     }
@@ -124,42 +124,39 @@ namespace xpyt
      * comm module *
      ***************/
 
-    py::module get_comm_module_impl()
-    {
-        py::module comm_module = create_module("comm");
-
-        py::class_<xcomm>(comm_module, "Comm")
-            .def(
-                py::init<const py::object&, const py::object&, const py::object&, const py::object&, py::kwargs>(),
-                "target_name"_a="", "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list()
-            )
+    py::handle bind_comm() {
+        static auto h = py::class_<xcomm>({}, "Comm")
             .def("close", &xcomm::close, "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list())
             .def("send", &xcomm::send, "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list())
             .def("on_msg", &xcomm::on_msg)
             .def("on_close", &xcomm::on_close)
             .def_property_readonly("comm_id", &xcomm::comm_id)
-            .def_property_readonly("kernel", &xcomm::kernel);
-
-        py::class_<xcomm_manager>(comm_module, "CommManager")
-            .def(py::init<>())
-            .def("register_target", &xcomm_manager::register_target);
-
-        comm_module.def("create_comm", [&comm_module](py::args objs, py::kwargs kw) {
-            return comm_module.attr("Comm")(*objs, **kw);
-        });
-
-        comm_module.def("get_comm_manager", [&comm_module]() {
-            static py::object comm_manager = comm_module.attr("CommManager")();
-
-            return comm_manager;
-        });
-
-        return comm_module;
+            .def_property_readonly("kernel", &xcomm::kernel)
+            .release();
+        return h;
     }
 
-    py::module get_comm_module()
+    py::handle bind_comm_manager() {
+        static auto h = py::class_<xcomm_manager>({}, "CommManager")
+            .def("register_target", &xcomm_manager::register_target)
+            .release();
+        return h;
+    }
+
+    py::module make_comm_module(xeus::xinterpreter* xint)
     {
-        static py::module comm_module = get_comm_module_impl();
+        py::module comm_module = create_module("comm");
+
+        comm_module.attr("Comm") = bind_comm();
+        comm_module.def("create_comm", [xint](const py::object& target_name, const py::object& data, const py::object& metadata, const py::object& buffers, py::kwargs kwargs) {
+            return xcomm(xint, target_name, data, metadata, buffers, kwargs);
+        }, "target_name"_a="", "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list());
+
+        comm_module.attr("CommManager") = bind_comm_manager();
+        comm_module.def("get_comm_manager", [xint]() {
+            return xcomm_manager(xint);
+        });
+
         return comm_module;
     }
 }

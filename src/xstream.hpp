@@ -17,7 +17,8 @@ namespace py = pybind11;
 
 namespace xpyt
 {
-    py::module get_stream_module();
+    py::module make_stream_module();
+    py::object make_stream(const std::string& name, xeus::xinterpreter* xint);
 }
 
 #endif

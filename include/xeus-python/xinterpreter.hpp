@@ -71,9 +71,6 @@ namespace xpyt
 
         nl::json internal_request_impl(const nl::json& content) override;
 
-        void set_request_context(xeus::xrequest_context context) override;
-        const xeus::xrequest_context& get_request_context() const noexcept override;
-
         void redirect_output();
 
         py::object m_ipython_shell_app;

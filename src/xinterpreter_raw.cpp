@@ -56,6 +56,8 @@ namespace xpyt
 
     raw_interpreter::~raw_interpreter()
     {
+        py::gil_scoped_acquire acquire;
+        m_displayhook = {};
     }
 
     void raw_interpreter::configure_impl()
@@ -75,7 +77,7 @@ namespace xpyt
             jedi.attr("api").attr("environment").attr("SameEnvironment")();
         });
 
-        py::module display_module = get_display_module(true);
+        py::module display_module = make_display_module(this, true);
         m_displayhook = display_module.attr("DisplayHook")();
 
         if (m_redirect_display_enabled)
@@ -89,7 +91,7 @@ namespace xpyt
         // Monkey patching "import IPython.core.display"
         sys.attr("modules")["IPython.core.display"] = display_module;
 
-        py::module kernel_module = get_kernel_module(true);
+        py::module kernel_module = make_kernel_module(this, true);
         // Monkey patching "from ipykernel.comm import Comm"
         sys.attr("modules")["ipykernel.comm"] = kernel_module;
 
@@ -103,8 +105,6 @@ namespace xpyt
         py::globals()["_i"] = "";
         py::globals()["_ii"] = "";
         py::globals()["_iii"] = "";
-
-        py::module context_module = get_request_context_module();
     }
 
     void raw_interpreter::execute_request_impl(
@@ -316,28 +316,12 @@ namespace xpyt
     {
     }
 
-    void raw_interpreter::set_request_context(xeus::xrequest_context context)
-    {
-        py::gil_scoped_acquire acquire;
-        py::module context_module = get_request_context_module();
-        context_module.attr("set_request_context")(context);
-    }
-
-    const xeus::xrequest_context& raw_interpreter::get_request_context() const noexcept
-    {
-        py::gil_scoped_acquire acquire;
-        py::module context_module = get_request_context_module();
-        py::object res = context_module.attr("get_request_context")();
-        return *(res.cast<xeus::xrequest_context*>());
-    }
-
     void raw_interpreter::redirect_output()
     {
         py::module sys = py::module::import("sys");
-        py::module stream_module = get_stream_module();
 
-        sys.attr("stdout") = stream_module.attr("Stream")("stdout");
-        sys.attr("stderr") = stream_module.attr("Stream")("stderr");
+        sys.attr("stdout") = make_stream("stdout", this);
+        sys.attr("stderr") = make_stream("stderr", this);
     }
 
 }

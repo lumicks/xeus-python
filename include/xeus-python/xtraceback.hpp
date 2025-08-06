@@ -29,7 +29,7 @@ namespace xpyt
         std::vector<std::string> m_traceback;
     };
 
-    XEUS_PYTHON_API py::module get_traceback_module();
+    XEUS_PYTHON_API py::module make_traceback_module();
 
     XEUS_PYTHON_API void register_filename_mapping(const std::string& filename, int execution_count);
 

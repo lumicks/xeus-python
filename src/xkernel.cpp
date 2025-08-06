@@ -44,11 +44,10 @@ namespace xpyt_ipython
 
     struct xkernel
     {
-        xkernel() = default;
-
         py::dict get_parent();
 
-        py::object m_comm_manager;
+        xeus::xinterpreter* m_xint;
+        py::object m_comm_manager = {};
     };
 
     /**************************
@@ -57,7 +56,16 @@ namespace xpyt_ipython
 
     py::dict xkernel::get_parent()
     {
-        return py::dict(py::arg("header") = xeus::get_interpreter().parent_header().get<py::object>());
+        return py::dict(py::arg("header") = m_xint->parent_header().get<py::object>());
+    }
+
+    py::handle bind_xkernel() {
+        static auto h = py::class_<xkernel>({}, "XKernel")
+            .def("get_parent", &xkernel::get_parent)
+            .def_property_readonly("_parent_header", &xkernel::get_parent)
+            .def_readwrite("comm_manager", &xkernel::m_comm_manager)
+            .release();
+        return h;
     }
 
     /*****************
@@ -67,13 +75,7 @@ namespace xpyt_ipython
     py::module get_kernel_module_impl()
     {
         py::module kernel_module = xpyt::create_module("kernel");
-
-        py::class_<xkernel>(kernel_module, "XKernel")
-            .def(py::init<>())
-            .def("get_parent", &xkernel::get_parent)
-            .def_property_readonly("_parent_header", &xkernel::get_parent)
-            .def_readwrite("comm_manager", &xkernel::m_comm_manager);
-
+        kernel_module.attr("XKernel") = bind_xkernel();
         return kernel_module;
     }
 }
@@ -93,23 +95,24 @@ namespace xpyt_raw
 
     struct xmock_kernel
     {
-        xmock_kernel() = default;
+        xmock_kernel(xeus::xinterpreter* xint) : m_comm_manager(xint), m_xint(xint) {}
 
         inline py::object parent_header() const
         {
-            return py::dict(py::arg("header") = xeus::get_interpreter().parent_header().get<py::object>());
+            return py::dict(py::arg("header") = m_xint->parent_header().get<py::object>());
         }
 
         xpyt::xcomm_manager m_comm_manager;
+        xeus::xinterpreter* m_xint;
     };
 
     /*****************
      * kernel module *
      *****************/
 
-    void bind_history_manager(py::module& kernel_module)
+    py::handle bind_history_manager()
     {
-        py::class_<xeus::xhistory_manager>(kernel_module, "HistoryManager")
+        static auto h = py::class_<xeus::xhistory_manager>({}, "HistoryManager")
             .def_property_readonly("session_number", [](xeus::xhistory_manager&) {return 0;})
             .def("get_range", [](xeus::xhistory_manager& me,
                 int session,
@@ -156,73 +159,63 @@ namespace xpyt_raw
                             py::arg("raw") = true,
                             py::arg("output") = false,
                             py::arg("n") = py::none(),
-                            py::arg("unique") = false);
+                            py::arg("unique") = false)
+            .release();
+        return h;
     }
 
-
-    void bind_comm(py::module& kernel_module)
-    {
-        py::class_<xpyt::xcomm>(kernel_module, "Comm")
-            .def(
-                py::init<const py::object&, const py::object&, const py::object&, const py::object&, py::kwargs>(),
-                "target_name"_a="", "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list()
-            )
-            .def("close", &xpyt::xcomm::close, "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list())
-            .def("send", &xpyt::xcomm::send, "data"_a=py::dict(), "metadata"_a=py::dict(), "buffers"_a=py::list())
-            .def("on_msg", &xpyt::xcomm::on_msg)
-            .def("on_close", &xpyt::xcomm::on_close)
-            .def_property_readonly("comm_id", &xpyt::xcomm::comm_id)
-            .def_property_readonly("kernel", &xpyt::xcomm::kernel);
-
-        py::class_<xpyt::xcomm_manager>(kernel_module, "CommManager")
-            .def(py::init<>())
-            .def("register_target", &xpyt::xcomm_manager::register_target);
-    }
-
-    void bind_mock_objects(py::module& kernel_module)
-    {
-        py::class_<xmock_kernel>(kernel_module, "MockKernel", py::dynamic_attr())
-            .def(py::init<>())
+    py::handle bind_mock_kernel() {
+        static auto h = py::class_<xmock_kernel>({}, "MockKernel", py::dynamic_attr())
             .def_property_readonly("_parent_header", &xmock_kernel::parent_header)
-            .def_readwrite("comm_manager", &xmock_kernel::m_comm_manager);
+            .def_readwrite("comm_manager", &xmock_kernel::m_comm_manager)
+            .release();
+        return h;
+    }
 
-        py::class_<xmock_ipython>(kernel_module, "MockIPython")
-            .def(py::init<>())
+    py::handle bind_mock_ipython()
+    {
+        static auto h = py::class_<xmock_ipython>({}, "MockIPython")
             .def_readwrite("kernel", &xmock_ipython::kernel)
             .def("register_post_execute", &xmock_ipython::register_post_execute)
             .def("enable_gui", &xmock_ipython::enable_gui)
             .def("observe", &xmock_ipython::observe)
-            .def("showtraceback", &xmock_ipython::showtraceback);
+            .def("showtraceback", &xmock_ipython::showtraceback)
+            .release();
+        return h;
     }
 
     struct ipython_instance
     {
-        ipython_instance() : m_instance(py::none())
+        ipython_instance(xeus::xinterpreter* xint) : m_instance(py::none()), m_xint(xint)
         {
         }
 
-        py::object get_instance(const py::module& kernel_module) const
+        py::object get_instance() const
         {
-            if (m_instance.is(py::none()))
+            if (m_instance.is_none())
             {
-
-                m_instance = kernel_module.attr("MockIPython")();
-                m_instance.attr("kernel") = kernel_module.attr("MockKernel")();
+                bind_mock_kernel();
+                bind_mock_ipython();
+                m_instance = py::cast(xmock_ipython());
+                m_instance.attr("kernel") = xmock_kernel(m_xint);
             }
             return m_instance;
         }
 
     private:
         mutable py::object m_instance;
+        xeus::xinterpreter* m_xint;
     };
 
-    py::module get_kernel_module_impl()
+    py::module get_kernel_module_impl(xeus::xinterpreter* xint)
     {
         py::module kernel_module = xpyt::create_module("kernel");
 
-        bind_history_manager(kernel_module);
-        bind_comm(kernel_module);
-        bind_mock_objects(kernel_module);
+        kernel_module.attr("HistoryManager") = bind_history_manager();
+        kernel_module.attr("Comm") = xpyt::bind_comm();
+        kernel_module.attr("CommManager") = xpyt::bind_comm_manager();
+        kernel_module.attr("MockKernel") = bind_mock_kernel();
+        kernel_module.attr("MockIPython") = bind_mock_ipython();
 
         // To keep ipywidgets working, we must not import any module from IPython
         // before the kernel module has been defined and IPython.core has been
@@ -237,9 +230,9 @@ namespace xpyt_raw
         // results in a random crash at kernel shutdown.
         // Also notice that using an attribute of kernel_module to memoize results
         // in random segfault in the interpreter.
-        ipython_instance ipyinstance;
-        kernel_module.def("get_ipython", [ipyinstance, kernel_module]() {
-            return ipyinstance.get_instance(kernel_module);
+        auto ipyinstance = ipython_instance(xint);
+        kernel_module.def("get_ipython", [ipyinstance]() {
+            return ipyinstance.get_instance();
             });
 
         return kernel_module;
@@ -249,49 +242,21 @@ namespace xpyt_raw
 
 namespace xpyt
 {
-    py::module get_kernel_module(bool raw_mode /*false*/)
+    py::module make_kernel_module(xeus::xinterpreter* xint, bool raw_mode)
     {
-
-        static py::module kernel_module;
         if (raw_mode)
         {
-            kernel_module = xpyt_raw::get_kernel_module_impl();
+            return xpyt_raw::get_kernel_module_impl(xint);
         }
         else
         {
-
-            kernel_module = xpyt_ipython::get_kernel_module_impl();
+            return xpyt_ipython::get_kernel_module_impl();
         }
-
-        return kernel_module;
     }
 
-    py::module make_request_context_module()
-    {
-        py::module context_module = create_module("request_context_module");
-
-        py::class_<xeus::xrequest_context>(context_module, "RequestContext")
-            .def(py::init<>())
-            .def_property_readonly("header", &xeus::xrequest_context::header);
-
-        exec(py::str(R"(
-import contextvars as cv
-request_context = cv.ContextVar('request_context')
-
-def set_request_context(ctx):
-    request_context.set(ctx)
-
-def get_request_context():
-    return request_context.get()
-        )"), context_module.attr("__dict__"));
-
-        return context_module;
-    }
-
-    py::module get_request_context_module()
-    {
-        static py::module rc_module = make_request_context_module();
-        return rc_module;
+    py::object make_kernel(xeus::xinterpreter* xint) {
+        xpyt_ipython::bind_xkernel();
+        return py::cast(xpyt_ipython::xkernel{xint});
     }
 }
 

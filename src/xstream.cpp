@@ -33,7 +33,7 @@ namespace xpyt
     {
     public:
 
-        xstream(std::string stream_name);
+        xstream(std::string stream_name, xeus::xinterpreter* xint);
         virtual ~xstream();
 
         py::object get_write();
@@ -47,13 +47,22 @@ namespace xpyt
         py::object m_write_func;
     };
 
+    py::handle bind_stream() {
+        static auto h = py::class_<xstream>({}, "Stream")
+            .def_property("write", &xstream::get_write, &xstream::set_write)
+            .def("flush", &xstream::flush)
+            .def("isatty", &xstream::isatty)
+            .release();
+        return h;
+    }
+
     /**************************
      * xstream implementation *
      **************************/
 
-    xstream::xstream(std::string stream_name)
-        : m_stream_name(stream_name), m_write_func(py::cpp_function([stream_name](const std::string& message) {
-            xeus::get_interpreter().publish_stream(stream_name, message);
+    xstream::xstream(std::string stream_name, xeus::xinterpreter* xint)
+        : m_stream_name(stream_name), m_write_func(py::cpp_function([stream_name, xint](const std::string& message) {
+            xint->publish_stream(stream_name, message);
         }))
     {
     }
@@ -101,6 +110,15 @@ namespace xpyt
         py::object m_write_func;
     };
 
+    py::handle bind_terminal_stream() {
+        static auto h = py::class_<xterminal_stream>({}, "TerminalStream")
+            .def(py::init<>())
+            .def_property("write", &xterminal_stream::get_write, &xterminal_stream::set_write)
+            .def("flush", &xterminal_stream::flush)
+            .release();
+        return h;
+    }
+
     /***********************************
      * xterminal_stream implementation *
      ***********************************/
@@ -134,27 +152,17 @@ namespace xpyt
      * stream module *
      *****************/
 
-    py::module get_stream_module_impl()
+    py::module make_stream_module()
     {
         py::module stream_module = create_module("stream");
-
-        py::class_<xstream>(stream_module, "Stream")
-            .def(py::init<std::string>())
-            .def_property("write", &xstream::get_write, &xstream::set_write)
-            .def("flush", &xstream::flush)
-            .def("isatty", &xstream::isatty);
-
-        py::class_<xterminal_stream>(stream_module, "TerminalStream")
-            .def(py::init<>())
-            .def_property("write", &xterminal_stream::get_write, &xterminal_stream::set_write)
-            .def("flush", &xterminal_stream::flush);
-
+        stream_module.attr("Stream") = bind_stream();
+        stream_module.attr("TerminalStream") = bind_terminal_stream();
         return stream_module;
     }
 
-    py::module get_stream_module()
-    {
-        static py::module stream_module = get_stream_module_impl();
-        return stream_module;
+    py::object make_stream(const std::string& name, xeus::xinterpreter* xint) {
+        bind_stream();
+        return py::cast(xstream(name, xint));
     }
+
 }
