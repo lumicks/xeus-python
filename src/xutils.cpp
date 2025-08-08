@@ -21,10 +21,8 @@
 #endif
 
 #ifdef __GNUC__
+#  include <execinfo.h>
 #  include <stdio.h>
-#  ifndef XPYT_EMSCRIPTEN_WASM_BUILD
-#    include <execinfo.h>
-#  endif
 #  include <stdlib.h>
 #  include <unistd.h>
 #endif
@@ -68,7 +66,7 @@ bool extract_option(std::string short_opt, std::string long_opt, int argc, char*
 }
 
 void sigsegv_handler(int sig) {
-#if defined(__GNUC__) && !defined(XPYT_EMSCRIPTEN_WASM_BUILD)
+#if defined(__GNUC__)
     void* array[10];
 
     // get void*'s for all entries on the stack

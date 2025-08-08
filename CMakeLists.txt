@@ -38,16 +38,6 @@ if (NOT DEFINED XPYTHON_KERNELSPEC_PATH)
     set(XPYTHON_KERNELSPEC_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
 endif ()
 
-if(EMSCRIPTEN)
-    # the variables PYTHON_VERSION_MAJOR and PYTHON_VERSION_MINOR
-    # might be wrong for the EMSCRIPTEN case since it may contains
-    # the versions of build-python and not the one of the host.
-    FILE(GLOB WASM_PYTHON_LIBRARY  $ENV{PREFIX}/lib/libpython*.a)
-    STRING(REGEX MATCH "python[0-9]+[.][0-9]+" PYTHON_VERSION_STRING ${WASM_PYTHON_LIBRARY})
-    STRING(REGEX MATCH "[0-9]+" PYTHON_VERSION_MAJOR ${PYTHON_VERSION_STRING})
-    STRING(REGEX MATCH "[0-9]+$" PYTHON_VERSION_MINOR ${PYTHON_VERSION_STRING})
-endif()
-
 configure_file (
     "${CMAKE_CURRENT_SOURCE_DIR}/share/jupyter/kernels/xpython/kernel.json.in"
     "${CMAKE_CURRENT_SOURCE_DIR}/share/jupyter/kernels/xpython/kernel.json"
@@ -72,8 +62,6 @@ option(XPYT_BUILD_XPYTHON_EXTENSION "Build the xpython extension module" OFF)
 option(XPYT_USE_SHARED_XEUS "Link xpython or xpython_extension with the xeus shared library (instead of the static library)" ON)
 option(XPYT_USE_SHARED_XEUS_PYTHON "Link xpython and xpython_extension with the xeus-python shared library (instead of the static library)" ON)
 
-option(XPYT_EMSCRIPTEN_WASM_BUILD "Build for wasm with emscripten" OFF)
-
 # Test options
 option(XPYT_BUILD_TESTS "xeus-python test suite" OFF)
 
@@ -81,24 +69,6 @@ function(cat IN_FILE OUT_FILE)
   file(READ ${IN_FILE} CONTENTS)
   file(APPEND ${OUT_FILE} "\n${CONTENTS}")
 endfunction()
-
-
-if(EMSCRIPTEN)
-    # Prepare a temporary file to "post.js.in" to
-    # merge xeus custom post js and the pyjs post js
-    file(WRITE post.js.in "")
-    cat(wasm_patches/post.js  post.js.in)
-
-    add_compile_definitions(XPYT_EMSCRIPTEN_WASM_BUILD)
-
-    set(XPYT_BUILD_STATIC OFF)
-    set(XPYT_BUILD_SHARED OFF)
-    set(XPYT_BUILD_XPYTHON_EXECUTABLE OFF)
-    set(XPYT_BUILD_XPYTHON_EXTENSION OFF)
-    set(XPYT_USE_SHARED_XEUS OFF)
-    set(XPYT_USE_SHARED_XEUS_PYTHON OFF)
-    set(XPYT_BUILD_TESTS OFF)
-endif()
 
 # Dependencies
 # ============
@@ -119,21 +89,9 @@ if (NOT TARGET pybind11_json)
     find_package(pybind11_json ${pybind11_json_REQUIRED_VERSION} REQUIRED)
 endif ()
 
-if(EMSCRIPTEN)
-    if (NOT TARGET xeus-lite)
-        find_package(xeus-lite ${xeus-lite_REQUIRED_VERSION} REQUIRED)
-    endif ()
-    if (NOT TARGET pyjs)
-        find_package(pyjs ${pyjs_REQUIRED_VERSION} REQUIRED)
-    endif ()
-    configure_file(${pyjs_PRE_JS_PATH} ${CMAKE_CURRENT_BINARY_DIR}/pre.js COPYONLY)
-    cat(${pyjs_POST_JS_PATH}  post.js.in)
-    configure_file( post.js.in  ${CMAKE_CURRENT_BINARY_DIR}/post.js COPYONLY)
-else ()
-    if (NOT TARGET xeus-zmq AND NOT TARGET xeus-zmq-static)
-        find_package(xeus-zmq ${xeus-zmq_REQUIRED_VERSION} REQUIRED)
-    endif ()
-endif()
+if (NOT TARGET xeus-zmq AND NOT TARGET xeus-zmq-static)
+    find_package(xeus-zmq ${xeus-zmq_REQUIRED_VERSION} REQUIRED)
+endif ()
 
 # Source files
 # ============
@@ -179,42 +137,6 @@ set(XPYTHON_SRC
 
 set(XPYTHON_EXTENSION_SRC
     src/xpython_extension.cpp
-)
-
-set(XEUS_PYTHON_WASM_SRC
-    src/xcomm.cpp
-    src/xcomm.hpp
-    src/xdisplay.cpp
-    src/xdisplay.hpp
-    src/xinput.cpp
-    src/xinput.hpp
-    src/xinspect.cpp
-    src/xinspect.hpp
-    src/xinternal_utils.cpp
-    src/xinternal_utils.hpp
-    src/xinterpreter.cpp
-    src/xinterpreter_wasm.cpp
-    src/xkernel.cpp
-    src/xkernel.hpp
-    src/xpaths.cpp
-    src/xstream.cpp
-    src/xstream.hpp
-    src/xtraceback.cpp
-    src/xutils.cpp
-)
-
-set(XEUS_PYTHON_WASM_HEADERS
-    include/xeus-python/xdebugger.hpp
-    include/xeus-python/xeus_python_config.hpp
-    include/xeus-python/xpaths.hpp
-    include/xeus-python/xinterpreter.hpp
-    include/xeus-python/xinterpreter_wasm.hpp
-    include/xeus-python/xtraceback.hpp
-    include/xeus-python/xutils.hpp
-)
-
-set(XPYTHON_WASM_SRC
-    src/main_wasm.cpp
 )
 
 # Targets and link - Macros
@@ -292,9 +214,7 @@ macro(xpyt_create_target target_name src headers linkage output_name)
                                $<BUILD_INTERFACE:${XEUS_PYTHON_INCLUDE_DIR}>
                                $<INSTALL_INTERFACE:include>)
 
-    if (EMSCRIPTEN)
-        set(XPY_XEUS_TARGET xeus)
-    elseif (XPYT_USE_SHARED_XEUS)
+    if (XPYT_USE_SHARED_XEUS)
         set(XPYT_XEUS_TARGET xeus-zmq)
     else ()
         set(XPYT_XEUS_TARGET xeus-zmq-static)
@@ -340,15 +260,6 @@ if (XPYT_BUILD_STATIC)
     list(APPEND XEUS_PYTHON_TARGETS xeus-python-static)
 endif ()
 
-if (EMSCRIPTEN)
-    xpyt_create_target(xeus-python-wasm "${XEUS_PYTHON_WASM_SRC}" "${XEUS_PYTHON_WASM_HEADERS}" STATIC xeus-python-wasm)
-    target_compile_options(xeus-python-wasm PRIVATE -fPIC)
-    list(APPEND XEUS_PYTHON_TARGETS xeus-python-wasm)
-
-    target_link_libraries(xeus-python-wasm PRIVATE pyjs)
-
-endif ()
-
 # xpython
 # =======
 
@@ -370,44 +281,6 @@ if (XPYT_BUILD_XPYTHON_EXTENSION)
     xpyt_set_common_options(xpython_extension)
     xpyt_set_kernel_options(xpython_extension)
     xpyt_target_link_libraries(xpython_extension)
-endif()
-
-# xpython
-# ============
-
-if (EMSCRIPTEN)
-    # TODO MAKE BETTER
-    SET(PYTHON_UTIL_LIBS
-        ${CMAKE_INSTALL_PREFIX}/lib/libbz2.a
-        ${CMAKE_INSTALL_PREFIX}/lib/libz.a
-        ${CMAKE_INSTALL_PREFIX}/lib/libsqlite3.a
-        ${CMAKE_INSTALL_PREFIX}/lib/libffi.a
-        ${CMAKE_INSTALL_PREFIX}/lib/libzstd.a
-        ${CMAKE_INSTALL_PREFIX}/lib/libssl.a
-        ${CMAKE_INSTALL_PREFIX}/lib/libcrypto.a
-        ${CMAKE_INSTALL_PREFIX}/lib/liblzma.a
-    )
-
-    add_executable(xpython ${XPYTHON_WASM_SRC})
-    target_link_libraries(xpython PRIVATE ${PYTHON_UTIL_LIBS} pybind11::embed)
-
-    xpyt_set_common_options(xpython)
-    target_compile_options(xpython PRIVATE -fPIC)
-
-    xpyt_set_kernel_options(xpython)
-    target_link_libraries(xpython PRIVATE xeus-python-wasm xeus-lite)
-
-    include(WasmBuildOptions)
-    xeus_wasm_compile_options(xpython)
-    xeus_wasm_link_options(xpython "web,worker")
-    target_link_options(xpython
-        PUBLIC "SHELL: -s LZ4=1"
-        PUBLIC "SHELL: --post-js  ${CMAKE_CURRENT_BINARY_DIR}/post.js"
-        PUBLIC "SHELL: --pre-js pre.js"
-        PUBLIC "SHELL: -s MAIN_MODULE=1"
-        PUBLIC "SHELL: -s WASM_BIGINT"
-        PUBLIC "-s DEFAULT_LIBRARY_FUNCS_TO_INCLUDE=\"['\$Browser', '\$ERRNO_CODES']\" "
-    )
 endif()
 
 # Tests
@@ -444,7 +317,7 @@ if (XPYT_BUILD_XPYTHON_EXECUTABLE)
             RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 
-if(XPYT_BUILD_XPYTHON_EXECUTABLE OR EMSCRIPTEN)
+if(XPYT_BUILD_XPYTHON_EXECUTABLE)
     # Configuration and data directories for jupyter and xeus-python
     set(XJUPYTER_DATA_DIR "share/jupyter"    CACHE STRING "Jupyter data directory")
 
@@ -486,14 +359,4 @@ if (XPYT_BUILD_SHARED)
     install(EXPORT ${PROJECT_NAME}-targets
             FILE ${PROJECT_NAME}Targets.cmake
             DESTINATION ${XEUS_PYTHON_CMAKECONFIG_INSTALL_DIR})
-endif ()
-
-if (EMSCRIPTEN)
-
-    install(FILES
-            "$<TARGET_FILE_DIR:xpython>/xpython.js"
-            "$<TARGET_FILE_DIR:xpython>/xpython.wasm"
-            DESTINATION ${CMAKE_INSTALL_BINDIR}
-    )
-
 endif ()
