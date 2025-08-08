@@ -8,9 +8,9 @@
 # The full license is in the file LICENSE, distributed with this software. #
 ############################################################################
 
-cmake_minimum_required(VERSION 3.20)
-project(xeus-python)
-list(APPEND CMAKE_PREFIX_PATH ${CMAKE_BINARY_DIR}/generators)
+cmake_minimum_required(VERSION 3.28)
+project(xeus-python CXX)
+include(.github/lib/boilerplate.cmake)
 find_package(embedded_python)
 
 set(XEUS_PYTHON_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -35,7 +35,7 @@ message(STATUS "Building xeus-python v${${PROJECT_NAME}_VERSION}")
 include(GNUInstallDirs)
 
 if (NOT DEFINED XPYTHON_KERNELSPEC_PATH)
-    set(XPYTHON_KERNELSPEC_PATH "${CMAKE_INSTALL_FULL_BINDIR}/")
+    set(XPYTHON_KERNELSPEC_PATH "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/")
 endif ()
 
 if(EMSCRIPTEN)
@@ -108,8 +108,6 @@ set(xeus-lite_REQUIRED_VERSION 1.0.1)
 set(pybind11_REQUIRED_VERSION 2.6.1)
 set(pybind11_json_REQUIRED_VERSION 0.2.8)
 set(pyjs_REQUIRED_VERSION 2.0.0)
-
-find_package(Python COMPONENTS Interpreter REQUIRED)
 
 if (NOT TARGET pybind11::headers)
     # Defaults to ON for cmake >= 3.18

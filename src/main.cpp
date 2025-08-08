@@ -71,9 +71,6 @@ int main(int argc, char* argv[])
 #endif
     signal(SIGINT, xpyt::sigkill_handler);
 
-    // Python initialization
-    PyStatus status;
-
     PyConfig config;
     PyConfig_InitPythonConfig(&config);
 

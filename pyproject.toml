@@ -1,0 +1,24 @@
+[tool.ruff.lint]
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["E402", "F401", "F403"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+extend-exclude = '''
+(
+  /(
+      \.git
+    | build
+  )/
+)
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+py_version = 311
+
+# Project-specific settings after this point

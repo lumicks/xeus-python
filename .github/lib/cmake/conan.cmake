@@ -1,0 +1,76 @@
+# Produce a list of CLI args that can be passed to `conan install` to match CMake's config.
+function(lmx_detect_conan_args output_var)
+    if(CMAKE_OSX_ARCHITECTURES)
+        set(arch ${CMAKE_OSX_ARCHITECTURES})
+    elseif(MSVC)
+        set(arch ${CMAKE_CXX_COMPILER_ARCHITECTURE_ID})
+    else()
+        set(arch ${CMAKE_SYSTEM_PROCESSOR})
+    endif()
+
+    if(arch MATCHES "arm64|ARM64|aarch64")
+        list(APPEND settings "arch=armv8")
+    else()
+        list(APPEND settings "arch=x86_64")
+    endif()
+
+    if(MSVC)
+        list(APPEND settings "compiler=msvc")
+        string(SUBSTRING ${MSVC_VERSION} 0 3 msvc_version)  # e.g. 1942 -> 194
+        list(APPEND settings "compiler.version=${msvc_version}")
+
+        # See: https://cmake.org/cmake/help/latest/variable/CMAKE_MSVC_RUNTIME_LIBRARY.html
+        if(CMAKE_MSVC_RUNTIME_LIBRARY)  # MSVC runtime explicitly set by user or env
+            if(CMAKE_MSVC_RUNTIME_LIBRARY MATCHES ".*DLL$")
+                list(APPEND settings "compiler.runtime=dynamic")
+            else()
+                list(APPEND settings "compiler.runtime=static")
+            endif()
+            if(CMAKE_MSVC_RUNTIME_LIBRARY MATCHES "Debug")
+                list(APPEND settings "compiler.runtime_type=Debug")
+            else()
+                list(APPEND settings "compiler.runtime_type=Release")
+            endif()
+        else()  # MSVC runtime was not specified so we match CMake defaults
+            list(APPEND settings "compiler.runtime=dynamic")
+            if(CMAKE_BUILD_TYPE MATCHES "Debug")
+                list(APPEND settings "compiler.runtime_type=Debug")
+            else()
+                list(APPEND settings "compiler.runtime_type=Release")
+            endif()
+        endif()
+    else()
+        if(CMAKE_CXX_COMPILER_ID MATCHES AppleClang)
+            list(APPEND settings "compiler=apple-clang" "compiler.libcxx=libc++")
+        elseif(CMAKE_CXX_COMPILER_ID MATCHES Clang)
+            list(APPEND settings "compiler=clang")
+            if(APPLE)
+                list(APPEND settings "compiler.libcxx=libc++")
+            elseif(LINUX)
+                list(APPEND settings "compiler.libcxx=libstdc++11")
+            endif()
+        elseif(CMAKE_CXX_COMPILER_ID MATCHES GNU)
+            list(APPEND settings "compiler=gcc" "compiler.libcxx=libstdc++11")
+        endif()
+
+        string(REPLACE "." ";" version_components ${CMAKE_CXX_COMPILER_VERSION})
+        list(GET version_components 0 major_version)
+        list(APPEND settings "compiler.version=${major_version}")
+    endif()
+
+    list(APPEND settings "compiler.cppstd=${CMAKE_CXX_STANDARD}")
+    list(APPEND settings "build_type=${CMAKE_BUILD_TYPE}")
+    list(TRANSFORM settings PREPEND "-s=" OUTPUT_VARIABLE args)
+
+    # We don't use a C compiler directly so `CMAKE_C_COMPILER` is blank for us, but we can easily
+    # define the matching C compiler based on conventions (for MSVC it's always the same exe).
+    if(NOT MSVC)
+        set(cxx ${CMAKE_CXX_COMPILER})
+        string(REPLACE "clang++" "clang" cc ${cxx})
+        string(REPLACE "g++" "gcc" cc ${cc})
+        string(REPLACE "c++" "cc" cc ${cc})
+        list(APPEND args "--conf:all=tools.build:compiler_executables={'c': '${cc}', 'cpp': '${cxx}'}")
+    endif()
+
+    set(${output_var} ${args} PARENT_SCOPE)
+endfunction()

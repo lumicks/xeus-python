@@ -37,6 +37,7 @@ class XeusPythonConan(ConanFile):
     default_options = {
         "shared": False,
         "fPIC": True,
+        "embedded_python-core/*:version": "3.12.10",
         "embedded_python/*:packages": embedded_python_env(),
     }
     generators = "CMakeDeps"
@@ -47,12 +48,15 @@ class XeusPythonConan(ConanFile):
 
     def requirements(self):
         # We need to keep the `user/channel` internally consistent for cookbook dependencies.
-        self.requires(f"xeus-zmq/3.1.0-lmx.1@lumicks/cookbook-testing")
+        self.requires(f"xeus-zmq/3.1.0@dean/testing-1")
         self.requires(f"pybind11/2.11.1@lumicks/stable", force=True)
         self.requires("nlohmann_json/3.11.3", force=True, transitive_headers=True)
         self.requires("pybind11_json/0.2.13")
         self.requires("doctest/2.4.11")
         self.requires("embedded_python/1.10.0@lumicks/stable")
+
+    def layout(self):
+        self.folders.generators = "generators"
 
     def generate(self):
         tc = CMakeToolchain(self)

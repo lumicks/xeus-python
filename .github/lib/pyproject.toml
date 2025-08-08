@@ -1,0 +1,24 @@
+[build-system]
+requires = ["poetry_core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "lmxcpp"
+version = "v4.3.1"
+description = "LUMICKS C++ build tools"
+authors = [{name = "LUMICKS", email = "lmxcpp@lumicks.com"}]
+requires-python = ">=3.12"
+dependencies = [
+    "cmake==3.28.4",
+    "ninja==1.11.1.1",
+    "black==24.4.2",
+    "isort==5.13.2",
+    "clang-format==19.1.7",
+    "conan==2.17.1",
+    "packaging==24.0",
+    "pre-commit==3.7.1",
+    "dmgbuild==1.6.1; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+lmxcpp = "lmxcpp.__main__:main"

@@ -1,58 +1,17 @@
-# Prerequisites
-*.d
+# Please add IDE-related ignores to your own gitignore-global
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Vim tmp files
-*.swp
-
-# Test build artefacts
-test/CMakeCache.txt
-test/Makefile
-test/CMakeFiles/
-test/cmake_install.cmake
-test/__pycache__/
-
-# Documentation build artefacts
-docs/CMakeCache.txt
-docs/xml/
-docs/build/
-
-# Build directory
+# C++ build -- in-source builds are not supported
 build/
+build-*/
+cmake-*/
+!.github/actions/build/
+CMakeUserPresets.json
+
+# Python
+__pycache__/
+.ipynb_checkpoints/
+.pytest_cache/
 
 # generated kernel specs
 /share/jupyter/kernels/xpython/kernel.json
 /share/jupyter/kernels/xpython-raw/kernel.json
-
-# Jupyter artefacts
-.ipynb_checkpoints/
-
-# JS artifacts
-node_modules/
-
-post.js.in

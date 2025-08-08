@@ -102,7 +102,7 @@ namespace xpyt
 
     auto xcomm::cpp_callback(const python_callback_type& py_callback) const -> cpp_callback_type
     {
-        return [this, py_callback](const xeus::xmessage& msg)
+        return [py_callback](const xeus::xmessage& msg)
         {
             XPYT_HOLDING_GIL(py_callback(cppmessage_to_pymessage(msg)))
         };

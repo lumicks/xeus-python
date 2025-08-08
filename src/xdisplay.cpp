@@ -1087,7 +1087,7 @@ namespace xpyt_raw
     std::string xprogressbar::repr() const
     {
         double fraction = double(m_progress) / double(m_total);
-        std::size_t len_filled = floor(fraction * m_text_width);
+        std::size_t len_filled = static_cast<std::size_t>(floor(fraction * static_cast<double>(m_text_width)));
 
         std::string filled(len_filled, '=');
         std::string rest(m_text_width - len_filled, ' ');

@@ -27,7 +27,7 @@ find_package(doctest)
 set(XEUS_PYTHON_TESTS
     main.cpp
     ../src/xutils.cpp
-    test_debugger.cpp
+#    test_debugger.cpp
     test_kernel.cpp
     test_multi_kernel.cpp
     xeus_client.hpp

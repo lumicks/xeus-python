@@ -1086,7 +1086,7 @@ timer::timer()
     , m_mcv()
     , m_done(false)
 {
-    m_runner = std::move(std::thread(&timer::run_timer, this));
+    m_runner = std::thread(&timer::run_timer, this);
 }
 
 timer::~timer()
@@ -1150,7 +1150,7 @@ void dump_connection_file()
 void start_kernel()
 {
     dump_connection_file();
-    std::string cmd = "../xpython -f " + KERNEL_JSON + "&";
+    std::string cmd = "./xpython -f " + KERNEL_JSON + "&";
     std::system(cmd.c_str());
     std::this_thread::sleep_for(2s);
 }
