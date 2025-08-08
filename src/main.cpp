@@ -28,8 +28,6 @@
 #include "xeus-python/xdebugger.hpp"
 #include "xeus-python/xeus_python_config.hpp"
 #include "xeus-python/xinterpreter.hpp"
-#include "xeus-python/xinterpreter_raw.hpp"
-#include "xeus-python/xpaths.hpp"
 #include "xeus-python/xutils.hpp"
 #include "xeus-zmq/xserver_zmq_split.hpp"
 #include "xeus-zmq/xzmq_context.hpp"
@@ -87,14 +85,8 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<xeus::xcontext> context = xeus::make_zmq_context();
 
     // Instantiating the xeus xinterpreter
-    bool raw_mode = xpyt::extract_option("-r", "--raw", argc, argv);
     using interpreter_ptr = std::unique_ptr<xeus::xinterpreter>;
-    interpreter_ptr interpreter;
-    if (raw_mode) {
-        interpreter = interpreter_ptr(new xpyt::raw_interpreter());
-    } else {
-        interpreter = interpreter_ptr(new xpyt::interpreter());
-    }
+    auto interpreter = interpreter_ptr(new xpyt::interpreter());
 
     using history_manager_ptr = std::unique_ptr<xeus::xhistory_manager>;
     history_manager_ptr hist = xeus::make_in_memory_history_manager();

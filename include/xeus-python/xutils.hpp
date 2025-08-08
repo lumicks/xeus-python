@@ -22,12 +22,8 @@ namespace py = pybind11;
 namespace nl = nlohmann;
 
 namespace xpyt {
-XEUS_PYTHON_API XPYT_FORCE_PYBIND11_EXPORT bool is_pyobject_true(const py::object& obj);
 
 XEUS_PYTHON_API bool holding_gil();
-
-XEUS_PYTHON_API
-bool extract_option(std::string short_opt, std::string long_opt, int argc, char* argv[]);
 
 #define XPYT_HOLDING_GIL(func)                                                                     \
     if (holding_gil()) {                                                                           \

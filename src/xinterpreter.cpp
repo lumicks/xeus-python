@@ -69,7 +69,7 @@ void interpreter::configure_impl() {
     py::module display_module = make_display_module(this);
     py::module traceback_module = make_traceback_module();
     py::module comm_module = make_comm_module(this);
-    py::module kernel_module = make_kernel_module(this);
+    py::module kernel_module = make_kernel_module();
 
     // Old approach: ipykernel provides the comm
     sys.attr("modules")["ipykernel.comm"] = comm_module;

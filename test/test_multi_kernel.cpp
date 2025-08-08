@@ -1,7 +1,6 @@
 #include "doctest/doctest.h"
 #include "xeus-python/xdebugger.hpp"
 #include "xeus-python/xinterpreter.hpp"
-#include "xeus-python/xpaths.hpp"
 #include "xeus-zmq/xserver_zmq_split.hpp"
 #include "xeus-zmq/xzmq_context.hpp"
 #include "xeus/xeus_context.hpp"

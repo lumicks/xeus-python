@@ -17,7 +17,7 @@
 namespace py = pybind11;
 
 namespace xpyt {
-py::module make_kernel_module(xeus::xinterpreter* xint, bool raw_mode = false);
+py::module make_kernel_module();
 
 py::object make_kernel(xeus::xinterpreter* xint);
 } // namespace xpyt
