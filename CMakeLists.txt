@@ -57,7 +57,6 @@ option(XPYT_ENABLE_PYPI_WARNING "Enable warning on PyPI wheels" OFF)
 option(XPYT_BUILD_STATIC "Build xeus-python static library" ON)
 option(XPYT_BUILD_SHARED "Split xpython build into executable and library" ON)
 option(XPYT_BUILD_XPYTHON_EXECUTABLE "Build the xpython executable" ON)
-option(XPYT_BUILD_XPYTHON_EXTENSION "Build the xpython extension module" OFF)
 
 option(XPYT_USE_SHARED_XEUS "Link xpython or xpython_extension with the xeus shared library (instead of the static library)" ON)
 option(XPYT_USE_SHARED_XEUS_PYTHON "Link xpython and xpython_extension with the xeus-python shared library (instead of the static library)" ON)
@@ -133,10 +132,6 @@ set(XEUS_PYTHON_HEADERS
 
 set(XPYTHON_SRC
     src/main.cpp
-)
-
-set(XPYTHON_EXTENSION_SRC
-    src/xpython_extension.cpp
 )
 
 # Targets and link - Macros
@@ -270,17 +265,6 @@ if (XPYT_BUILD_XPYTHON_EXECUTABLE)
     xpyt_set_common_options(xpython)
     xpyt_set_kernel_options(xpython)
     xpyt_target_link_libraries(xpython)
-endif()
-
-# xpython_extension
-# =================
-
-if (XPYT_BUILD_XPYTHON_EXTENSION)
-    pybind11_add_module(xpython_extension ${XPYTHON_EXTENSION_SRC})
-
-    xpyt_set_common_options(xpython_extension)
-    xpyt_set_kernel_options(xpython_extension)
-    xpyt_target_link_libraries(xpython_extension)
 endif()
 
 # Tests
