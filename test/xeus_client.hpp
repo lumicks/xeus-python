@@ -1,38 +1,36 @@
 /***************************************************************************
-* Copyright (c) 2018, Martin Renou, Johan Mabille, Sylvain Corlay, and     *
-* Wolf Vollprecht                                                          *
-* Copyright (c) 2018, QuantStack                                           *
-*                                                                          *
-* Distributed under the terms of the BSD 3-Clause License.                 *
-*                                                                          *
-* The full license is in the file LICENSE, distributed with this software. *
-****************************************************************************/
+ * Copyright (c) 2018, Martin Renou, Johan Mabille, Sylvain Corlay, and     *
+ * Wolf Vollprecht                                                          *
+ * Copyright (c) 2018, QuantStack                                           *
+ *                                                                          *
+ * Distributed under the terms of the BSD 3-Clause License.                 *
+ *                                                                          *
+ * The full license is in the file LICENSE, distributed with this software. *
+ ****************************************************************************/
+
+#include "nlohmann/json.hpp"
+#include "xeus-zmq/xclient_zmq.hpp"
+#include "xeus/xkernel_configuration.hpp"
+#include "xeus/xmessage.hpp"
+
+#include <queue>
 
 #include <condition_variable>
 #include <mutex>
-#include <queue>
 #include <string>
 #include <thread>
-
-#include "nlohmann/json.hpp"
-#include "xeus/xkernel_configuration.hpp"
-#include "xeus/xmessage.hpp"
-#include "xeus-zmq/xclient_zmq.hpp"
 
 namespace nl = nlohmann;
 
 // Client that logs sent and received messages.
 // Based on xclient_zmq from xeus-zmq.
 
-class xeus_logger_client
-{
+class xeus_logger_client {
 public:
     using client_ptr = std::unique_ptr<xeus::xclient_zmq>;
 
-    xeus_logger_client(xeus::xcontext& context,
-                       const std::string& user_name,
-                       const xeus::xconfiguration& config,
-                       const std::string& file_name);
+    xeus_logger_client(xeus::xcontext& context, const std::string& user_name,
+                       const xeus::xconfiguration& config, const std::string& file_name);
 
     virtual ~xeus_logger_client();
 
@@ -54,7 +52,6 @@ public:
     bool kernel_dead = false;
 
 private:
-
     void handle_kernel_status_message(bool status);
 
     std::string m_user_name;

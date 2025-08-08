@@ -1,14 +1,20 @@
 /***************************************************************************
-* Copyright (c) 2018, Martin Renou, Johan Mabille, Sylvain Corlay, and     *
-* Wolf Vollprecht                                                          *
-* Copyright (c) 2018, QuantStack                                           *
-*                                                                          *
-* Distributed under the terms of the BSD 3-Clause License.                 *
-*                                                                          *
-* The full license is in the file LICENSE, distributed with this software. *
-****************************************************************************/
+ * Copyright (c) 2018, Martin Renou, Johan Mabille, Sylvain Corlay, and     *
+ * Wolf Vollprecht                                                          *
+ * Copyright (c) 2018, QuantStack                                           *
+ *                                                                          *
+ * Distributed under the terms of the BSD 3-Clause License.                 *
+ *                                                                          *
+ * The full license is in the file LICENSE, distributed with this software. *
+ ****************************************************************************/
 
 #include "doctest/doctest.h"
+#include "pybind11/pybind11.h"
+#include "xeus-zmq/xzmq_context.hpp"
+#include "xeus/xsystem.hpp"
+#include "xeus_client.hpp"
+
+#include <stdio.h>
 
 #include <algorithm>
 #include <chrono>
@@ -18,35 +24,24 @@
 #include <iostream>
 #include <mutex>
 #include <thread>
-
-#include "xeus/xsystem.hpp"
-
-#include "xeus_client.hpp"
-
-#include "xeus-zmq/xzmq_context.hpp"
-
-#include "pybind11/pybind11.h"
-
-#include <stdio.h>
 #ifdef _WIN32
-#include <direct.h>
-#define getcwd _getcwd
+#  include <direct.h>
+#  define getcwd _getcwd
 #else
-#include <unistd.h>
+#  include <unistd.h>
 #endif
 
 /***********************************
  * Should be moved in a utils file *
  ***********************************/
 
-std::string get_current_working_directory()
-{
+std::string get_current_working_directory() {
     char buff[FILENAME_MAX];
     char* r = getcwd(buff, FILENAME_MAX);
     // Avoids warning
     (void)r;
     std::string current_dir(buff);
-    //current_dir += '/';
+    // current_dir += '/';
 #ifdef _WIN32
     std::replace(current_dir.begin(), current_dir.end(), '\\', '/');
 #endif
@@ -60,107 +55,74 @@ using namespace std::chrono_literals;
  * Predefined messages *
  ***********************/
 
-nl::json make_attach_request(int seq)
-{
+nl::json make_attach_request(int seq) {
     nl::json req = {
         {"type", "request"},
         {"seq", seq},
         {"command", "attach"},
-        {"arguments", {
-            {"justMyCode", false},
-            {"cwd", get_current_working_directory()}
-        }}
-    };
+        {"arguments", {{"justMyCode", false}, {"cwd", get_current_working_directory()}}}};
     return req;
 }
 
-nl::json make_init_request()
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", 1},
-        {"command", "initialize"},
-        {"arguments", {
-            {"cliendID", "vscode"},
-            {"clientName", "Visual Studio Code"},
-            {"adapterID", "python"},
-            {"pathFormat", "path"},
-            {"linesStartAt1", true},
-            {"columnsStartAt1", true},
-            {"supportsVariableType", true},
-            {"supportsVariablePaging", true},
-            {"supportsRunInTerminalRequest", false},
-            {"locale", "en-us"}
-        }}
-    };
+nl::json make_init_request() {
+    nl::json req = {{"type", "request"},
+                    {"seq", 1},
+                    {"command", "initialize"},
+                    {"arguments",
+                     {{"cliendID", "vscode"},
+                      {"clientName", "Visual Studio Code"},
+                      {"adapterID", "python"},
+                      {"pathFormat", "path"},
+                      {"linesStartAt1", true},
+                      {"columnsStartAt1", true},
+                      {"supportsVariableType", true},
+                      {"supportsVariablePaging", true},
+                      {"supportsRunInTerminalRequest", false},
+                      {"locale", "en-us"}}}};
     return req;
 }
 
-nl::json make_disconnect_request(int seq)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "disconnect"},
-        {"arguments", {
-            {"restart", false},
-            {"terminateDebuggee", false}
-        }}
-    };
+nl::json make_disconnect_request(int seq) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "disconnect"},
+                    {"arguments", {{"restart", false}, {"terminateDebuggee", false}}}};
     return req;
 }
 
-nl::json make_shutdown_request()
-{
-    nl::json req = {
-        {"restart", false}
-    };
+nl::json make_shutdown_request() {
+    nl::json req = {{"restart", false}};
     return req;
 }
 
-nl::json make_breakpoint_request(int seq, const std::string& path, int line_number)
-{
+nl::json make_breakpoint_request(int seq, const std::string& path, int line_number) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "setBreakpoints"},
+                    {"arguments",
+                     {{"source", {{"path", path}}},
+                      {"breakpoints", nl::json::array({nl::json::object({{"line", line_number}})})},
+                      {"lines", {line_number}},
+                      {"sourceModified", false}}}};
+    return req;
+}
+
+nl::json make_breakpoint_request(int seq, const std::string& path, int line_number1,
+                                 int line_number2) {
     nl::json req = {
         {"type", "request"},
         {"seq", seq},
         {"command", "setBreakpoints"},
-        {"arguments", {
-            {"source", {
-                {"path", path}
-            }},
-            {"breakpoints",
-                nl::json::array({nl::json::object({{"line", line_number}})})
-            },
-            {"lines", {line_number}},
-            {"sourceModified", false}
-        }}
-    };
-    return req;
-
-}
-
-nl::json make_breakpoint_request(int seq, const std::string& path, int line_number1, int line_number2)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "setBreakpoints"},
-        {"arguments", {
-            {"source", {
-                {"path", path}
-            }},
-            {"breakpoints",
-                nl::json::array({nl::json::object({{"line", line_number1}}), nl::json::object({{"line", line_number2}})})
-            },
-            {"lines", {line_number1, line_number2}},
-            {"sourceModified", false}
-        }}
-    };
+        {"arguments",
+         {{"source", {{"path", path}}},
+          {"breakpoints", nl::json::array({nl::json::object({{"line", line_number1}}),
+                                           nl::json::object({{"line", line_number2}})})},
+          {"lines", {line_number1, line_number2}},
+          {"sourceModified", false}}}};
     return req;
 }
 
-nl::json make_configuration_done_request(int seq)
-{
+nl::json make_configuration_done_request(int seq) {
     nl::json req = {
         {"type", "request"},
         {"seq", seq},
@@ -169,208 +131,136 @@ nl::json make_configuration_done_request(int seq)
     return req;
 }
 
-nl::json make_next_request(int seq, int thread_id)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "next"},
-        {"arguments", {
-            {"threadId", thread_id}
-        }}
-    };
+nl::json make_next_request(int seq, int thread_id) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "next"},
+                    {"arguments", {{"threadId", thread_id}}}};
     return req;
 }
 
-nl::json make_continue_request(int seq, int thread_id)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "continue"},
-        {"arguments", {
-            {"threadId", thread_id}
-        }}
-    };
+nl::json make_continue_request(int seq, int thread_id) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "continue"},
+                    {"arguments", {{"threadId", thread_id}}}};
     return req;
 }
 
-nl::json make_evaluate_request(int seq, const std::string& code)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "evaluate"},
-        {"arguments", {
-            {"expression", code}
-        }}
-    };
+nl::json make_evaluate_request(int seq, const std::string& code) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "evaluate"},
+                    {"arguments", {{"expression", code}}}};
     return req;
 }
 
-nl::json make_stacktrace_request(int seq, int thread_id)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "stackTrace"},
-        {"arguments", {
-            {"threadId", thread_id}
-        }}
-    };
+nl::json make_stacktrace_request(int seq, int thread_id) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "stackTrace"},
+                    {"arguments", {{"threadId", thread_id}}}};
     return req;
 }
 
-nl::json make_scopes_request(int seq, int frame_id)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "scopes"},
-        {"arguments", {
-            {"frameId", frame_id}
-        }}
-    };
+nl::json make_scopes_request(int seq, int frame_id) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "scopes"},
+                    {"arguments", {{"frameId", frame_id}}}};
     return req;
 }
 
-nl::json make_variables_request(int seq, int var_ref, int start = 0, int count = 0)
-{
+nl::json make_variables_request(int seq, int var_ref, int start = 0, int count = 0) {
     nl::json req = {
         {"type", "request"},
         {"seq", seq},
         {"command", "variables"},
-        {"arguments", {
-            {"variablesReference", var_ref},
-            {"start", start},
-            {"count", count}
-        }}
-    };
+        {"arguments", {{"variablesReference", var_ref}, {"start", start}, {"count", count}}}};
     return req;
 }
 
-nl::json make_execute_request(const std::string& code)
-{
+nl::json make_execute_request(const std::string& code) {
     nl::json req = {
         {"code", code},
     };
     return req;
 }
 
-nl::json make_dump_cell_request(int seq, const std::string& code)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "dumpCell"},
-        {"arguments", {
-            {"code", code}
-        }}
-    };
+nl::json make_dump_cell_request(int seq, const std::string& code) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "dumpCell"},
+                    {"arguments", {{"code", code}}}};
     return req;
 }
 
-nl::json make_source_request(int seq, const std::string& path)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "source"},
-        {"arguments", {
-            {"source", {
-                {"path", path}
-            }}
-        }}
-    };
+nl::json make_source_request(int seq, const std::string& path) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "source"},
+                    {"arguments", {{"source", {{"path", path}}}}}};
     return req;
 }
 
-nl::json make_stepin_request(int seq, int thread_id)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "stepIn"},
-        {"arguments", {
-            {"threadId", thread_id}
-        }}
-    };
+nl::json make_stepin_request(int seq, int thread_id) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "stepIn"},
+                    {"arguments", {{"threadId", thread_id}}}};
     return req;
 }
 
-nl::json make_debug_info_request(int seq)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "debugInfo"}
-    };
+nl::json make_debug_info_request(int seq) {
+    nl::json req = {{"type", "request"}, {"seq", seq}, {"command", "debugInfo"}};
     return req;
 }
 
-nl::json make_inspect_variables_request(int seq)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "inspectVariables"}
-    };
+nl::json make_inspect_variables_request(int seq) {
+    nl::json req = {{"type", "request"}, {"seq", seq}, {"command", "inspectVariables"}};
     return req;
 }
 
-nl::json make_rich_inspect_variables_request(int seq, const std::string& var_name)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "richInspectVariables"},
-        {"arguments", {
-            {"variableName", var_name},
-        }}
-    };
+nl::json make_rich_inspect_variables_request(int seq, const std::string& var_name) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "richInspectVariables"},
+                    {"arguments",
+                     {
+                         {"variableName", var_name},
+                     }}};
     return req;
 }
 
-nl::json make_rich_inspect_variables_request(int seq, const std::string& var_name, int frame_id)
-{
+nl::json make_rich_inspect_variables_request(int seq, const std::string& var_name, int frame_id) {
     nl::json req = make_rich_inspect_variables_request(seq, var_name);
     req["arguments"]["frameId"] = frame_id;
     return req;
 }
 
-nl::json make_copy_to_globals_request(int seq, const std::string& src_var_name, const std::string& dst_var_name, int src_frame_id)
-{
-    nl::json req = {
-        {"type", "request"},
-        {"seq", seq},
-        {"command", "copyToGlobals"},
-        {"arguments", {
-            {"srcVariableName", src_var_name},
-            {"dstVariableName", dst_var_name},
-            {"srcFrameId", src_frame_id}
-        }}
-    };
+nl::json make_copy_to_globals_request(int seq, const std::string& src_var_name,
+                                      const std::string& dst_var_name, int src_frame_id) {
+    nl::json req = {{"type", "request"},
+                    {"seq", seq},
+                    {"command", "copyToGlobals"},
+                    {"arguments",
+                     {{"srcVariableName", src_var_name},
+                      {"dstVariableName", dst_var_name},
+                      {"srcFrameId", src_frame_id}}}};
     return req;
 }
 
-nl::json make_exception_breakpoint_request(int seq)
-{
+nl::json make_exception_breakpoint_request(int seq) {
     nl::json except_option = {
-        {"path", nl::json::array({
-                nl::json::object({{"names", nl::json::array({"Python Exceptions"})}})
-        })},
-        {"breakMode", "always"}
-    };
+        {"path",
+         nl::json::array({nl::json::object({{"names", nl::json::array({"Python Exceptions"})}})})},
+        {"breakMode", "always"}};
     nl::json options = nl::json::array({except_option, except_option});
     nl::json req = {
         {"type", "request"},
         {"seq", seq},
         {"command", "setExceptionBreakpoints"},
-        {"arguments", {
-            {"filters", {"raised", "uncaught"}},
-            {"exceptionOptions", options}
-        }}
-    };
+        {"arguments", {{"filters", {"raised", "uncaught"}}, {"exceptionOptions", options}}}};
     return req;
 }
 
@@ -378,12 +268,9 @@ nl::json make_exception_breakpoint_request(int seq)
  * debugger_client *
  *******************/
 
-class debugger_client
-{
+class debugger_client {
 public:
-
-    debugger_client(xeus::xcontext& context,
-                    const std::string& connection_file,
+    debugger_client(xeus::xcontext& context, const std::string& connection_file,
                     const std::string& log_file);
 
     bool test_init();
@@ -407,7 +294,6 @@ public:
     void disconnect_debugger();
 
 private:
-
     nl::json attach();
     nl::json set_external_breakpoints();
     nl::json set_breakpoints();
@@ -429,50 +315,40 @@ private:
     xeus_logger_client m_client;
 };
 
-debugger_client::debugger_client(xeus::xcontext& context,
-                                 const std::string& connection_file,
+debugger_client::debugger_client(xeus::xcontext& context, const std::string& connection_file,
                                  const std::string& log_file)
-    : m_client(context, "debugger_client",
-               xeus::load_configuration(connection_file), log_file)
-{
-}
+    : m_client(context, "debugger_client", xeus::load_configuration(connection_file), log_file) {}
 
-bool debugger_client::test_init()
-{
+bool debugger_client::test_init() {
     m_client.send_on_control("debug_request", make_init_request());
     nl::json rep = m_client.receive_on_control();
     return rep["content"]["success"].get<bool>();
 }
 
-bool debugger_client::test_disconnect()
-{
+bool debugger_client::test_disconnect() {
     attach();
     m_client.send_on_control("debug_request", make_disconnect_request(3));
     nl::json rep = m_client.receive_on_control();
     return rep["content"]["type"] == "response";
 }
 
-bool debugger_client::test_attach()
-{
+bool debugger_client::test_attach() {
     nl::json rep = attach();
     return rep["content"]["success"].get<bool>();
 }
 
-bool debugger_client::test_external_set_breakpoints()
-{
+bool debugger_client::test_external_set_breakpoints() {
     attach();
     nl::json rep = set_external_breakpoints();
     return rep["content"]["body"].size() != 0;
 }
 
-bool debugger_client::print_code_variable(const std::string& expected, int& seq)
-{
+bool debugger_client::print_code_variable(const std::string& expected, int& seq) {
     m_client.send_on_control("debug_request", make_stacktrace_request(seq, 1));
     ++seq;
     nl::json json1 = m_client.receive_on_control();
 
-    if(json1["content"]["body"]["stackFrames"].empty())
-    {
+    if (json1["content"]["body"]["stackFrames"].empty()) {
         m_client.send_on_control("debug_request", make_stacktrace_request(seq, 1));
         ++seq;
         json1 = m_client.receive_on_control();
@@ -491,12 +367,10 @@ bool debugger_client::print_code_variable(const std::string& expected, int& seq)
     const auto& ar = json3["content"]["body"]["variables"];
     bool var_found = false;
     std::string name, value;
-    for(auto it = ar.begin(); it != ar.end() && !var_found; ++it)
-    {
+    for (auto it = ar.begin(); it != ar.end() && !var_found; ++it) {
         auto d = *it;
         name = d["name"].get<std::string>();
-        if(name == "i")
-        {
+        if (name == "i") {
             var_found = true;
             value = d["value"].get<std::string>();
         }
@@ -506,15 +380,13 @@ bool debugger_client::print_code_variable(const std::string& expected, int& seq)
     return value == expected;
 }
 
-bool debugger_client::test_set_breakpoints()
-{
+bool debugger_client::test_set_breakpoints() {
     attach();
     nl::json rep = set_breakpoints();
     return rep["content"]["body"].size() != 0;
 }
 
-bool debugger_client::test_set_exception_breakpoints()
-{
+bool debugger_client::test_set_exception_breakpoints() {
     attach();
     nl::json reply = set_exception_breakpoints();
     std::string code = "a = 3 * undef";
@@ -526,8 +398,7 @@ bool debugger_client::test_set_exception_breakpoints()
     return reason == "exception";
 }
 
-bool debugger_client::test_source()
-{
+bool debugger_client::test_source() {
     attach();
 
     std::string code = make_code();
@@ -543,22 +414,19 @@ bool debugger_client::test_source()
     return res;
 }
 
-void debugger_client::next(int& seq)
-{
+void debugger_client::next(int& seq) {
     m_client.send_on_control("debug_request", make_next_request(seq, 1));
     m_client.receive_on_control();
     ++seq;
 }
 
-void debugger_client::continue_exec(int& seq)
-{
+void debugger_client::continue_exec(int& seq) {
     m_client.send_on_control("debug_request", make_continue_request(seq, 1));
     m_client.receive_on_control();
     ++seq;
 }
 
-bool debugger_client::next_continue_common()
-{
+bool debugger_client::next_continue_common() {
     nl::json ev = m_client.wait_for_debug_event("stopped");
 
     // Code should have stopped line 3
@@ -586,8 +454,7 @@ bool debugger_client::next_continue_common()
     return rep["content"]["status"] == "ok";
 }
 
-bool debugger_client::test_external_next_continue()
-{
+bool debugger_client::test_external_next_continue() {
     attach();
     // We set 2 breakpoints on line 3 and 5 of external_code.py
     set_external_breakpoints();
@@ -600,8 +467,7 @@ bool debugger_client::test_external_next_continue()
     return next_continue_common();
 }
 
-bool debugger_client::test_next_continue()
-{
+bool debugger_client::test_next_continue() {
     attach();
     // We set 2 breakpoints on line 2 and 4 of the first cell
     set_breakpoints();
@@ -612,11 +478,11 @@ bool debugger_client::test_next_continue()
     return next_continue_common();
 }
 
-bool debugger_client::test_step_in()
-{
+bool debugger_client::test_step_in() {
     attach();
 
-    m_client.send_on_control("debug_request", make_dump_cell_request(4, make_external_invoker_code()));
+    m_client.send_on_control("debug_request",
+                             make_dump_cell_request(4, make_external_invoker_code()));
     nl::json dump_res = m_client.receive_on_control();
     std::string path = dump_res["content"]["body"]["sourcePath"].get<std::string>();
     m_client.send_on_control("debug_request", make_breakpoint_request(4, path, 1, 2));
@@ -661,8 +527,7 @@ bool debugger_client::test_step_in()
     return res;
 }
 
-bool debugger_client::test_stack_trace()
-{
+bool debugger_client::test_stack_trace() {
     attach();
     // We set 2 breakpoints on line 2 and 4 of the first cell
     set_breakpoints();
@@ -684,8 +549,7 @@ bool debugger_client::test_stack_trace()
     return res;
 }
 
-bool debugger_client::test_debug_info()
-{
+bool debugger_client::test_debug_info() {
     attach();
 
     m_client.send_on_control("debug_request", make_debug_info_request(4));
@@ -729,8 +593,7 @@ bool debugger_client::test_debug_info()
     return res && res2 && stopped_list2[0] == 1;
 }
 
-bool debugger_client::test_inspect_variables()
-{
+bool debugger_client::test_inspect_variables() {
     attach();
 
     std::string code = "i=4\nj=i+4\nk=j-3\n";
@@ -746,8 +609,7 @@ bool debugger_client::test_inspect_variables()
         auto x = std::find_if(vars.begin(), vars.end(), [&name](const nl::json& var) {
             return var.is_object() && var.value("name", "") == name;
         });
-        if (x == vars.end())
-        {
+        if (x == vars.end()) {
             std::cout << "missing " << name << std::endl;
             return false;
         }
@@ -781,8 +643,7 @@ std::string rich_html2 = R"RICH(<img src="">
                   <div><i class='fa-user fa'></i>: John Smith</div>
                   <div><i class='fa-map fa'></i>: NYC</div>)RICH";
 
-bool debugger_client::test_rich_inspect_variables()
-{
+bool debugger_client::test_rich_inspect_variables() {
     bool res = false;
     {
         m_client.send_on_shell("execute_request", make_execute_request(rich_inspect_class_def));
@@ -820,7 +681,8 @@ bool debugger_client::test_rich_inspect_variables()
         m_client.send_on_control("debug_request", make_stacktrace_request(seq, 1));
         nl::json stackframes = m_client.receive_on_control();
         int frame_id = stackframes["content"]["body"]["stackFrames"][0]["id"].get<int>();
-        m_client.send_on_control("debug_request", make_rich_inspect_variables_request(seq, "john", frame_id));
+        m_client.send_on_control("debug_request",
+                                 make_rich_inspect_variables_request(seq, "john", frame_id));
         nl::json rep = m_client.receive_on_control();
         m_client.send_on_control("debug_request", make_continue_request(seq, 1));
         m_client.receive_on_control();
@@ -830,13 +692,11 @@ bool debugger_client::test_rich_inspect_variables()
         std::string html = data["text/html"].get<std::string>();
         std::string plain = data["text/plain"].get<std::string>();
         res = html == rich_html2 && !plain.empty();
-
     }
     return res && res2;
 }
 
-bool debugger_client::test_variables()
-{
+bool debugger_client::test_variables() {
     std::string code = "i=4\nj=i+4\nk=j-3\ni=k+2\n";
     attach();
     {
@@ -858,8 +718,7 @@ bool debugger_client::test_variables()
     ++seq;
     nl::json json1 = m_client.receive_on_control();
 
-    if(json1["content"]["body"]["stackFrames"].empty())
-    {
+    if (json1["content"]["body"]["stackFrames"].empty()) {
         m_client.send_on_control("debug_request", make_stacktrace_request(seq, 1));
         ++seq;
         json1 = m_client.receive_on_control();
@@ -884,11 +743,11 @@ bool debugger_client::test_variables()
     return res;
 }
 
-bool debugger_client::test_copy_to_globals()
-{
+bool debugger_client::test_copy_to_globals() {
     std::string local_var_name = "var";
     std::string global_var_name = "var_copy";
-    std::string code = "from IPython.core.display import HTML\ndef my_test():\n\t" + local_var_name + " = HTML(\"<p>test content</p>\")\n\tpass\nmy_test()";
+    std::string code = "from IPython.core.display import HTML\ndef my_test():\n\t" + local_var_name
+                       + " = HTML(\"<p>test content</p>\")\n\tpass\nmy_test()";
     int seq = 12;
 
     // Init debugger and set breakpoint
@@ -909,8 +768,7 @@ bool debugger_client::test_copy_to_globals()
     m_client.send_on_control("debug_request", make_stacktrace_request(seq, 1));
     ++seq;
     nl::json json1 = m_client.receive_on_control();
-    if(json1["content"]["body"]["stackFrames"].empty())
-    {
+    if (json1["content"]["body"]["stackFrames"].empty()) {
         m_client.send_on_control("debug_request", make_stacktrace_request(seq, 1));
         ++seq;
         json1 = m_client.receive_on_control();
@@ -920,7 +778,8 @@ bool debugger_client::test_copy_to_globals()
     int frame_id = json1["content"]["body"]["stackFrames"][0]["id"].get<int>();
 
     // Copy the variable
-    m_client.send_on_control("debug_request", make_copy_to_globals_request(seq, local_var_name, global_var_name, frame_id));
+    m_client.send_on_control("debug_request", make_copy_to_globals_request(
+                                                  seq, local_var_name, global_var_name, frame_id));
     ++seq;
 
     // Get the scopes
@@ -935,7 +794,7 @@ bool debugger_client::test_copy_to_globals()
     ++seq;
     nl::json json3 = m_client.receive_on_control();
     nl::json local_var = {};
-    for (auto &var: json3["content"]["body"]["variables"]){
+    for (auto& var : json3["content"]["body"]["variables"]) {
         if (var["evaluateName"] == local_var_name) {
             local_var = var;
         }
@@ -952,7 +811,7 @@ bool debugger_client::test_copy_to_globals()
     ++seq;
     nl::json json4 = m_client.receive_on_control();
     nl::json global_var = {};
-    for (auto &var: json4["content"]["body"]["variables"]){
+    for (auto& var : json4["content"]["body"]["variables"]) {
         if (var["evaluateName"] == global_var_name) {
             global_var = var;
         }
@@ -966,21 +825,15 @@ bool debugger_client::test_copy_to_globals()
     return global_var["value"] == local_var["value"] && global_var["type"] == local_var["type"];
 }
 
-void debugger_client::start()
-{
-    m_client.start();
-}
+void debugger_client::start() { m_client.start(); }
 
-void debugger_client::disconnect_debugger()
-{
+void debugger_client::disconnect_debugger() {
     m_client.send_on_control("debug_request", make_disconnect_request(INT_MAX));
     m_client.receive_on_control();
 }
 
-void debugger_client::shutdown()
-{
-    if (m_client.kernel_dead)
-    {
+void debugger_client::shutdown() {
+    if (m_client.kernel_dead) {
         throw std::runtime_error("Kernel is not alive. Cannot send shutdown request.");
     }
     m_client.stop_channels();
@@ -988,12 +841,10 @@ void debugger_client::shutdown()
     m_client.receive_on_control();
 }
 
-nl::json debugger_client::attach()
-{
+nl::json debugger_client::attach() {
     m_client.send_on_control("debug_request", make_init_request());
     nl::json rep = m_client.receive_on_control();
-    if (!rep["content"]["success"].get<bool>())
-    {
+    if (!rep["content"]["success"].get<bool>()) {
         shutdown();
         std::this_thread::sleep_for(2s);
         throw std::runtime_error("Could not initialize debugger, exiting");
@@ -1003,16 +854,14 @@ nl::json debugger_client::attach()
 }
 
 // Dump a python file and set breakpoints in it
-nl::json debugger_client::set_external_breakpoints()
-{
+nl::json debugger_client::set_external_breakpoints() {
     dump_external_file();
     std::string path = get_external_path();
     m_client.send_on_control("debug_request", make_breakpoint_request(4, path, 3, 5));
     return m_client.receive_on_control();
 }
 
-nl::json debugger_client::set_breakpoints()
-{
+nl::json debugger_client::set_breakpoints() {
     m_client.send_on_control("debug_request", make_dump_cell_request(4, make_code()));
     nl::json res = m_client.receive_on_control();
     std::string path = res["content"]["body"]["sourcePath"].get<std::string>();
@@ -1020,40 +869,31 @@ nl::json debugger_client::set_breakpoints()
     return m_client.receive_on_control();
 }
 
-nl::json debugger_client::set_exception_breakpoints()
-{
+nl::json debugger_client::set_exception_breakpoints() {
     m_client.send_on_control("debug_request", make_exception_breakpoint_request(4));
     return m_client.receive_on_control();
 }
 
-std::string debugger_client::get_external_path()
-{
+std::string debugger_client::get_external_path() {
     return get_current_working_directory() + "/external_code.py";
 }
 
-void debugger_client::dump_external_file()
-{
+void debugger_client::dump_external_file() {
     static bool already_dumped = false;
-    if(!already_dumped)
-    {
+    if (!already_dumped) {
         std::ofstream out(get_external_path());
         out << make_external_code() << std::endl;
         already_dumped = true;
     }
 }
 
-std::string debugger_client::make_code() const
-{
-    return "i=4\ni+=4\ni+=3\ni-=1";
-}
+std::string debugger_client::make_code() const { return "i=4\ni+=4\ni+=3\ni-=1"; }
 
-std::string debugger_client::make_external_code() const
-{
+std::string debugger_client::make_external_code() const {
     return "def my_test():\n\ti=4\n\ti+=4\n\ti+=3\n\treturn i\n";
 }
 
-std::string debugger_client::make_external_invoker_code() const
-{
+std::string debugger_client::make_external_invoker_code() const {
     return "import external_code as ec\nec.my_test()\n";
 }
 
@@ -1061,17 +901,14 @@ std::string debugger_client::make_external_invoker_code() const
  * timer *
  *********/
 
-class timer
-{
+class timer {
 public:
-
     timer();
     ~timer();
 
     void notify_done();
 
 private:
-
     void run_timer();
 
     std::thread m_runner;
@@ -1080,22 +917,13 @@ private:
     bool m_done;
 };
 
-timer::timer()
-    : m_runner()
-    , m_cv()
-    , m_mcv()
-    , m_done(false)
-{
+timer::timer() : m_runner(), m_cv(), m_mcv(), m_done(false) {
     m_runner = std::thread(&timer::run_timer, this);
 }
 
-timer::~timer()
-{
-    m_runner.join();
-}
+timer::~timer() { m_runner.join(); }
 
-void timer::notify_done()
-{
+void timer::notify_done() {
     {
         std::lock_guard<std::mutex> lk(m_mcv);
         m_done = true;
@@ -1103,11 +931,9 @@ void timer::notify_done()
     m_cv.notify_one();
 }
 
-void timer::run_timer()
-{
+void timer::run_timer() {
     std::unique_lock<std::mutex> lk(m_mcv);
-    if (!m_cv.wait_for(lk, std::chrono::seconds(20), [this]() { return m_done; }))
-    {
+    if (!m_cv.wait_for(lk, std::chrono::seconds(20), [this]() { return m_done; })) {
         std::clog << "Unit test time out !!" << std::endl;
         std::terminate();
     }
@@ -1117,13 +943,11 @@ void timer::run_timer()
  * tests *
  *********/
 
-namespace
-{
-    const std::string KERNEL_JSON = "kernel-debug.json";
+namespace {
+const std::string KERNEL_JSON = "kernel-debug.json";
 }
 
-void dump_connection_file()
-{
+void dump_connection_file() {
     static bool dumped = false;
     static std::string connection_file = R"(
 {
@@ -1139,26 +963,22 @@ void dump_connection_file()
   "kernel_name": "xcpp"
 }
         )";
-    if(!dumped)
-    {
+    if (!dumped) {
         std::ofstream out(KERNEL_JSON);
         out << connection_file;
         dumped = true;
     }
 }
 
-void start_kernel()
-{
+void start_kernel() {
     dump_connection_file();
     std::string cmd = "./xpython -f " + KERNEL_JSON + "&";
     std::system(cmd.c_str());
     std::this_thread::sleep_for(2s);
 }
 
-TEST_SUITE("debugger")
-{
-    TEST_CASE("init")
-    {
+TEST_SUITE("debugger") {
+    TEST_CASE("init") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1174,8 +994,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("disconnect")
-    {
+    TEST_CASE("disconnect") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1190,8 +1009,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("attach")
-    {
+    TEST_CASE("attach") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1207,8 +1025,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("multisession")
-    {
+    TEST_CASE("multisession") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1226,8 +1043,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("set_external_breakpoints")
-    {
+    TEST_CASE("set_external_breakpoints") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1262,8 +1078,7 @@ TEST_SUITE("debugger")
         }
     }
     */
-    TEST_CASE("set_breakpoints")
-    {
+    TEST_CASE("set_breakpoints") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1279,13 +1094,13 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("set_exception_breakpoints")
-    {
+    TEST_CASE("set_exception_breakpoints") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
         {
-            debugger_client deb(*context_ptr, KERNEL_JSON, "debugger_set_exception_breakpoints.log");
+            debugger_client deb(*context_ptr, KERNEL_JSON,
+                                "debugger_set_exception_breakpoints.log");
             deb.start();
             bool res = deb.test_set_exception_breakpoints();
             deb.disconnect_debugger();
@@ -1296,8 +1111,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("source")
-    {
+    TEST_CASE("source") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1353,8 +1167,7 @@ TEST_SUITE("debugger")
     }
     */
 
-    TEST_CASE("stack_trace")
-    {
+    TEST_CASE("stack_trace") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1370,8 +1183,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("debug_info")
-    {
+    TEST_CASE("debug_info") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1387,8 +1199,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("inspect_variables")
-    {
+    TEST_CASE("inspect_variables") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1404,27 +1215,24 @@ TEST_SUITE("debugger")
         }
     }
 
-// TODO: Get test_rich_inspect_variables to work
-/*
-    TEST_CASE("rich_inspect_variables")
-    {
-        start_kernel();
-        timer t;
-        auto context_ptr = xeus::make_zmq_context();
+    // TODO: Get test_rich_inspect_variables to work
+    /*
+        TEST_CASE("rich_inspect_variables")
         {
-            debugger_client deb(*context_ptr, KERNEL_JSON, "debugger_rich_inspect_variables.log");
-            deb.start();
-            bool res = deb.test_rich_inspect_variables();
-            deb.shutdown();
-            std::this_thread::sleep_for(2s);
-            CHECK(res);
-            t.notify_done();
+            start_kernel();
+            timer t;
+            auto context_ptr = xeus::make_zmq_context();
+            {
+                debugger_client deb(*context_ptr, KERNEL_JSON,
+       "debugger_rich_inspect_variables.log"); deb.start(); bool res =
+       deb.test_rich_inspect_variables(); deb.shutdown(); std::this_thread::sleep_for(2s);
+                CHECK(res);
+                t.notify_done();
+            }
         }
-    }
-*/
+    */
 
-    TEST_CASE("variables")
-    {
+    TEST_CASE("variables") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();
@@ -1440,8 +1248,7 @@ TEST_SUITE("debugger")
         }
     }
 
-    TEST_CASE("copy_to_globals")
-    {
+    TEST_CASE("copy_to_globals") {
         start_kernel();
         timer t;
         auto context_ptr = xeus::make_zmq_context();

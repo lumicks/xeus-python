@@ -1,13 +1,11 @@
 #include "doctest/doctest.h"
-
 #include "pybind11/pybind11.h"
 
 #include <fstream>
 
 namespace py = pybind11;
 
-TEST_CASE("kernel")
-{
+TEST_CASE("kernel") {
     auto environ = py::module_::import("os").attr("environ");
     environ["JUPYTER_PATH"] = SOURCE_DIR "/share/jupyter";
     environ["JUPYTER_PLATFORM_DIRS"] = "1";
