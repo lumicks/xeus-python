@@ -10,9 +10,6 @@
 
 #include "xeus/xinput.hpp"
 
-#include "pybind11/functional.h"
-#include "pybind11/pybind11.h"
-#include "xeus-python/xutils.hpp"
 #include "xeus/xinterpreter.hpp"
 #include "xinput.hpp"
 
@@ -35,15 +32,13 @@ void notimplemented(const std::string&) {
 }
 
 input_redirection::input_redirection(bool allow_stdin) {
-    // Forward input()
-    py::module builtins = py::module::import("builtins");
+    const auto builtins = py::module::import("builtins");
     m_sys_input = builtins.attr("input");
     builtins.attr("input") = allow_stdin
                                  ? py::cpp_function(&cpp_input, py::arg("prompt") = "")
                                  : py::cpp_function(&notimplemented, py::arg("prompt") = "");
 
-    // Forward getpass()
-    py::module getpass = py::module::import("getpass");
+    const auto getpass = py::module::import("getpass");
     m_sys_getpass = getpass.attr("getpass");
     getpass.attr("getpass") = allow_stdin
                                   ? py::cpp_function(&cpp_getpass, py::arg("prompt") = "")
@@ -51,12 +46,8 @@ input_redirection::input_redirection(bool allow_stdin) {
 }
 
 input_redirection::~input_redirection() {
-    // Restore input()
-    py::module builtins = py::module::import("builtins");
-    builtins.attr("input") = m_sys_input;
-
-    // Restore getpass()
-    py::module getpass = py::module::import("getpass");
-    getpass.attr("getpass") = m_sys_getpass;
+    py::module_::import("builtins").attr("input") = m_sys_input;
+    py::module_::import("getpass").attr("getpass") = m_sys_getpass;
 }
+
 } // namespace xpyt

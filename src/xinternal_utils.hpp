@@ -8,8 +8,7 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_INTERNAL_UTILS_HPP
-#define XPYT_INTERNAL_UTILS_HPP
+#pragma once
 
 #include "pybind11/pybind11.h"
 #include "xeus/xcomm.hpp"
@@ -19,6 +18,7 @@
 namespace py = pybind11;
 
 namespace xpyt {
+
 py::module create_module(const std::string& module_name);
 
 std::string red_text(const std::string& text);
@@ -34,6 +34,5 @@ py::object cppmessage_to_pymessage(const xeus::xmessage& msg);
 std::string get_tmp_prefix();
 std::string get_tmp_suffix();
 std::string get_cell_tmp_file(const std::string& content);
-} // namespace xpyt
 
-#endif
+} // namespace xpyt

@@ -8,8 +8,7 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_CONFIG_HPP
-#define XPYT_CONFIG_HPP
+#pragma once
 
 // Project version
 #define XPYT_VERSION_MAJOR 0
@@ -46,5 +45,4 @@
 #  define XPYT_FORCE_PYBIND11_EXPORT
 #else
 #  define XPYT_FORCE_PYBIND11_EXPORT __attribute__((visibility("default")))
-#endif
 #endif

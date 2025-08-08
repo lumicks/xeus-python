@@ -8,10 +8,8 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_DISPLAY_HPP
-#define XPYT_DISPLAY_HPP
+#pragma once
 
-#include "pybind11/functional.h"
 #include "pybind11/pybind11.h"
 #include "xeus/xinterpreter.hpp"
 
@@ -20,5 +18,3 @@ namespace py = pybind11;
 namespace xpyt {
 py::module make_display_module(xeus::xinterpreter* xint);
 }
-
-#endif

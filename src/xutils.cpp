@@ -8,35 +8,9 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#include <cmath>
-#include <cstdlib>
-#include <functional>
-#include <iostream>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
-#ifdef WIN32
-#  include "Windows.h"
-#endif
-
-#ifdef __GNUC__
-#  include <execinfo.h>
-#  include <stdio.h>
-#  include <stdlib.h>
-#  include <unistd.h>
-#endif
-
-#include "nlohmann/json.hpp"
-#include "pybind11/eval.h"
-#include "pybind11/pybind11.h"
-#include "pybind11_json/pybind11_json.hpp"
 #include "xeus-python/xutils.hpp"
-#include "xeus/xcomm.hpp"
-#include "xeus/xsystem.hpp"
 
-namespace py = pybind11;
-namespace nl = nlohmann;
+#include "pybind11/eval.h"
 
 namespace xpyt {
 
@@ -49,44 +23,4 @@ void exec(const py::object& code, const py::object& scope) {
 
 py::object eval(const py::object& code, const py::object& scope) { return py::eval(code, scope); }
 
-void sigsegv_handler(int sig) {
-#if defined(__GNUC__)
-    void* array[10];
-
-    // get void*'s for all entries on the stack
-    int size = backtrace(array, 10);
-
-    // print out all the frames to stderr
-    fprintf(stderr, "Error: signal %d:\n", sig);
-    backtrace_symbols_fd(array, size, STDERR_FILENO);
-#endif
-    exit(1);
-}
-
-void sigkill_handler(int /*sig*/) { exit(0); }
-
-void print_pythonhome() {
-    std::setlocale(LC_ALL, "en_US.utf8");
-    // Py_GetPythonHome will return NULL if called before Py_Initialize()
-    PyConfig config;
-    PyConfig_InitPythonConfig(&config);
-    wchar_t* ph = config.home;
-
-    if (ph) {
-        char mbstr[1024];
-        std::wcstombs(mbstr, ph, 1024);
-        std::clog << "PYTHONHOME set to " << mbstr << std::endl;
-    } else {
-        std::clog << "PYTHONHOME not set or not initialized." << std::endl;
-    }
-}
-
-// Compares 2 versions and return true if version1 < version2.
-// The versions must be strings formatted as the regex: [0-9]+(\s[0-9]+)*
-bool less_than_version(std::string version1, std::string version2) {
-    using iterator_type = std::istream_iterator<int>;
-    std::istringstream iv1(version1), iv2(version2);
-    return std::lexicographical_compare(iterator_type(iv1), iterator_type(), iterator_type(iv2),
-                                        iterator_type());
-}
 } // namespace xpyt

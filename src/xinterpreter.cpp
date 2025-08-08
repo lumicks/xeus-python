@@ -10,8 +10,6 @@
 
 #include "xeus/xinterpreter.hpp"
 
-#include "nlohmann/json.hpp"
-#include "pybind11/functional.h"
 #include "pybind11_json/pybind11_json.hpp"
 #include "xcomm.hpp"
 #include "xdisplay.hpp"
@@ -19,17 +17,11 @@
 #include "xeus-python/xinterpreter.hpp"
 #include "xeus-python/xtraceback.hpp"
 #include "xeus-python/xutils.hpp"
-#include "xeus/xsystem.hpp"
 #include "xinput.hpp"
-#include "xinternal_utils.hpp"
 #include "xkernel.hpp"
 #include "xstream.hpp"
 
-#include <algorithm>
-#include <fstream>
-#include <memory>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace py = pybind11;
@@ -38,70 +30,49 @@ using namespace pybind11::literals;
 
 namespace xpyt {
 
-interpreter::interpreter(bool redirect_output_enabled /*=true*/,
-                         bool redirect_display_enabled /*=true*/)
-    : m_redirect_output_enabled{redirect_output_enabled},
-      m_redirect_display_enabled{redirect_display_enabled} {
-    xeus::register_interpreter(this);
-}
+interpreter::interpreter(bool redirect_output_enabled)
+    : m_redirect_output_enabled{redirect_output_enabled} {}
 
 interpreter::~interpreter() {
     py::gil_scoped_acquire acquire;
-    m_ipython_shell_app = {};
     m_ipython_shell = {};
-    m_displayhook = {};
-    m_logger = {};
-    m_terminal_stream = {};
 }
 
 void interpreter::configure_impl() {
-    if (m_release_gil_at_startup) {
-        // The GIL is not held by default by the interpreter, so every time we need to execute
-        // Python code we will need to acquire the GIL
-        m_release_gil = gil_scoped_release_ptr(new py::gil_scoped_release());
-    }
+    const auto gil = py::gil_scoped_acquire{};
 
-    py::gil_scoped_acquire acquire;
-
-    py::module sys = py::module::import("sys");
-    py::module logging = py::module::import("logging");
-
-    py::module display_module = make_display_module(this);
-    py::module traceback_module = make_traceback_module();
-    py::module comm_module = make_comm_module(this);
-    py::module kernel_module = make_kernel_module();
-
+    const auto sys = py::module::import("sys");
+    const auto comm = make_comm_module(this);
     // Old approach: ipykernel provides the comm
-    sys.attr("modules")["ipykernel.comm"] = comm_module;
+    sys.attr("modules")["ipykernel.comm"] = comm;
     // New approach: we provide our comm module
-    sys.attr("modules")["comm"] = comm_module;
+    sys.attr("modules")["comm"] = comm;
 
-    instanciate_ipython_shell();
-
-    m_ipython_shell_app.attr("initialize")(use_jedi_for_completion());
-    m_ipython_shell = m_ipython_shell_app.attr("shell");
+    const auto ipython_shell_app =
+        py::module::import("xeus_python_shell.shell").attr("XPythonShellApp")();
+    ipython_shell_app.attr("initialize")(true);
+    m_ipython_shell = ipython_shell_app.attr("shell");
 
     // Setting kernel property owning the CommManager and get_parent
     m_ipython_shell.attr("kernel") = make_kernel(this);
     m_ipython_shell.attr("kernel").attr("comm_manager") = xcomm_manager(this);
 
-    // Initializing the DisplayPublisher
+    const auto display_module = make_display_module(this);
     m_ipython_shell.attr("display_pub").attr("publish_display_data") =
         display_module.attr("publish_display_data");
     m_ipython_shell.attr("display_pub").attr("clear_output") = display_module.attr("clear_output");
 
-    // Initializing the DisplayHook
-    m_displayhook = m_ipython_shell.attr("displayhook");
-    m_displayhook.attr("publish_execution_result") =
+    m_ipython_shell.attr("displayhook").attr("publish_execution_result") =
         display_module.attr("publish_execution_result");
 
     // Needed for redirecting logging to the terminal
-    m_logger = m_ipython_shell_app.attr("log");
-    m_terminal_stream = make_stream_module().attr("TerminalStream")();
-    m_logger.attr("handlers") = py::list(0);
-    m_logger.attr("addHandler")(logging.attr("StreamHandler")(m_terminal_stream));
+    const auto logger = ipython_shell_app.attr("log");
+    logger.attr("handlers") = py::list(0);
+    logger.attr("addHandler")(
+        py::module::import("logging").attr("StreamHandler")(make_terminal_stream()));
 
     // Initializing the compiler
+    const auto traceback_module = make_traceback_module();
     m_ipython_shell.attr("compile").attr("filename_mapper") =
         traceback_module.attr("register_filename_mapping");
     m_ipython_shell.attr("compile").attr("get_filename") = traceback_module.attr("get_filename");
@@ -139,13 +110,12 @@ void interpreter::execute_request_impl(send_reply_callback cb, int /*execution_c
     } catch (py::error_already_set& e) {
         xerror error = extract_already_set_error(e);
         if (!config.silent) {
-            publish_execution_error(error.m_ename, error.m_evalue, error.m_traceback);
+            publish_execution_error(error.name, error.value, error.traceback);
         }
 
-        kernel_res["status"] = "error";
-        kernel_res["ename"] = error.m_ename;
-        kernel_res["evalue"] = error.m_evalue;
-        kernel_res["traceback"] = error.m_traceback;
+        kernel_res["ename"] = error.name;
+        kernel_res["evalue"] = error.value;
+        kernel_res["traceback"] = error.traceback;
         exception_occurred = true;
     } catch (...) {
         if (!config.silent) {
@@ -156,9 +126,9 @@ void interpreter::execute_request_impl(send_reply_callback cb, int /*execution_c
         exception_occurred = true;
     }
 
-    // Get payload
-    kernel_res["payload"] = m_ipython_shell.attr("payload_manager").attr("read_payload")();
-    m_ipython_shell.attr("payload_manager").attr("clear_payload")();
+    const auto payload_manager = m_ipython_shell.attr("payload_manager");
+    kernel_res["payload"] = payload_manager.attr("read_payload")();
+    payload_manager.attr("clear_payload")();
 
     if (exception_occurred) {
         kernel_res["status"] = "error";
@@ -171,172 +141,127 @@ void interpreter::execute_request_impl(send_reply_callback cb, int /*execution_c
         kernel_res["status"] = "ok";
         kernel_res["user_expressions"] = m_ipython_shell.attr("user_expressions")(user_expressions);
     } else {
-        py::list pyerror = m_ipython_shell.attr("last_error");
-
-        xerror error = extract_error(pyerror);
-
+        const auto error = extract_error(m_ipython_shell.attr("last_error").cast<py::list>());
         if (!config.silent) {
-            publish_execution_error(error.m_ename, error.m_evalue, error.m_traceback);
+            publish_execution_error(error.name, error.value, error.traceback);
         }
 
         kernel_res["status"] = "error";
-        kernel_res["ename"] = error.m_ename;
-        kernel_res["evalue"] = error.m_evalue;
-        kernel_res["traceback"] = error.m_traceback;
+        kernel_res["ename"] = error.name;
+        kernel_res["evalue"] = error.value;
+        kernel_res["traceback"] = error.traceback;
     }
     cb(kernel_res);
 }
 
 nl::json interpreter::complete_request_impl(const std::string& code, int cursor_pos) {
-    py::gil_scoped_acquire acquire;
-    nl::json kernel_res;
-
-    py::list completion = m_ipython_shell.attr("complete_code")(code, cursor_pos);
-
-    kernel_res["matches"] = completion[0];
-    kernel_res["cursor_start"] = completion[1];
-    kernel_res["cursor_end"] = completion[2];
-    kernel_res["metadata"] = nl::json::object();
-    kernel_res["status"] = "ok";
-
-    return kernel_res;
+    const auto gil = py::gil_scoped_acquire{};
+    const auto completion =
+        m_ipython_shell.attr("complete_code")(code, cursor_pos).cast<py::list>();
+    return nl::json{
+        {"matches", completion[0]},
+        {"cursor_start", completion[1]},
+        {"cursor_end", completion[2]},
+        {"metadata", nl::json::object()},
+        {"status", "ok"},
+    };
 }
 
 nl::json interpreter::inspect_request_impl(const std::string& code, int cursor_pos,
                                            int detail_level) {
-    py::gil_scoped_acquire acquire;
-    nl::json kernel_res;
-    nl::json data = nl::json::object();
-    bool found = false;
-
-    py::module tokenutil = py::module::import("IPython.utils.tokenutil");
-    py::str name = tokenutil.attr("token_at_cursor")(code, cursor_pos);
-
+    const auto gil = py::gil_scoped_acquire{};
+    const auto name =
+        py::module_::import("IPython.utils.tokenutil").attr("token_at_cursor")(code, cursor_pos);
     try {
-        data = m_ipython_shell.attr("object_inspect_mime")(name, "detail_level"_a = detail_level);
-        found = true;
-    } catch (py::error_already_set& e) {
-        // pass
+        return nl::json{
+            {"data",
+             m_ipython_shell.attr("object_inspect_mime")(name, "detail_level"_a = detail_level)},
+            {"metadata", nl::json::object()},
+            {"found", true},
+            {"status", "ok"},
+        };
+    } catch (py::error_already_set&) {
+        return nl::json{
+            {"data", nl::json::object()},
+            {"metadata", nl::json::object()},
+            {"found", false},
+            {"status", "ok"},
+        };
     }
-
-    kernel_res["data"] = data;
-    kernel_res["metadata"] = nl::json::object();
-    kernel_res["found"] = found;
-    kernel_res["status"] = "ok";
-    return kernel_res;
 }
 
 nl::json interpreter::is_complete_request_impl(const std::string& code) {
-    py::gil_scoped_acquire acquire;
-    nl::json kernel_res;
+    const auto gil = py::gil_scoped_acquire{};
 
-    py::object transformer_manager =
-        py::getattr(m_ipython_shell, "input_transformer_manager", py::none());
-    if (transformer_manager.is_none()) {
-        transformer_manager = m_ipython_shell.attr("input_splitter");
+    auto tm = py::getattr(m_ipython_shell, "input_transformer_manager", py::none());
+    if (tm.is_none()) {
+        tm = m_ipython_shell.attr("input_splitter");
     }
 
-    py::list result = transformer_manager.attr("check_complete")(code);
-    auto status = result[0].cast<std::string>();
+    const auto result = tm.attr("check_complete")(code).cast<py::list>();
+    const auto status = result[0].cast<std::string>();
 
-    kernel_res["status"] = status;
-    if (status.compare("incomplete") == 0) {
+    auto kernel_res = nl::json{{"status", status}};
+    if (status == "incomplete") {
         kernel_res["indent"] = std::string(result[1].cast<std::size_t>(), ' ');
     }
     return kernel_res;
 }
 
 nl::json interpreter::kernel_info_request_impl() {
-    nl::json result;
-    result["implementation"] = "xeus-python";
-    result["implementation_version"] = XPYT_VERSION;
+    constexpr auto banner = R"(
+  __  _____ _   _ ___
+  \ \/ / _ \ | | / __|
+   >  <  __/ |_| \__ \
+  /_/\_\___|\__,_|___/
 
-    /* The jupyter-console banner for xeus-python is the following:
-      __  _____ _   _ ___
-      \ \/ / _ \ | | / __|
-       >  <  __/ |_| \__ \
-      /_/\_\___|\__,_|___/
+  xeus-python: a Jupyter kernel for Python
+  Python )" PY_VERSION;
 
-      xeus-python: a Jupyter lernel for Python
-    */
-
-    std::string banner = ""
-                         "  __  _____ _   _ ___\n"
-                         "  \\ \\/ / _ \\ | | / __|\n"
-                         "   >  <  __/ |_| \\__ \\\n"
-                         "  /_/\\_\\___|\\__,_|___/\n"
-                         "\n"
-                         "  xeus-python: a Jupyter kernel for Python\n"
-                         "  Python ";
-    banner.append(PY_VERSION);
-#ifdef XEUS_PYTHON_PYPI_WARNING
-    banner.append(
-        "\n"
-        "\n"
-        "WARNING: this instance of xeus-python has been installed from a PyPI wheel.\n"
-        "We recommend using a general-purpose package manager instead, such as Conda/Mamba."
-        "\n");
-#endif
-    result["banner"] = banner;
-    result["debugger"] = true;
-
-    result["language_info"]["name"] = "python";
-    result["language_info"]["version"] = PY_VERSION;
-    result["language_info"]["mimetype"] = "text/x-python";
-    result["language_info"]["file_extension"] = ".py";
-
-    result["help_links"] = nl::json::array();
-    result["help_links"][0] = nl::json::object(
-        {{"text", "Xeus-Python Reference"}, {"url", "https://xeus-python.readthedocs.io"}});
-
-    result["status"] = "ok";
-    return result;
+    return nl::json{
+        {"implementation", "xeus-python"},
+        {"implementation_version", XPYT_VERSION},
+        {"banner", banner},
+        {"debugger", true},
+        {"language_info",
+         nl::json{
+             {"name", "python"},
+             {"version", PY_VERSION},
+             {"mimetype", "text/x-python"},
+             {"file_extension", ".py"},
+         }},
+        {"help_links", nl::json::array({nl::json{{"text", "Xeus-Python Reference"},
+                                                 {"url", "https://xeus-python.readthedocs.io"}}})},
+        {"status", "ok"},
+    };
 }
 
-void interpreter::shutdown_request_impl() {}
-
 nl::json interpreter::internal_request_impl(const nl::json& content) {
-    py::gil_scoped_acquire acquire;
-    std::string code = content.value("code", "");
-    nl::json reply;
-
-    // Reset traceback
+    const auto gil = py::gil_scoped_acquire{};
+    const auto code = content.value("code", "");
     m_ipython_shell.attr("last_error") = py::none();
 
     try {
         exec(py::str(code));
-        reply["status"] = "ok";
+        return {{"status", "ok"}};
     } catch (py::error_already_set& e) {
         // This will grab the latest traceback and set shell.last_error
         m_ipython_shell.attr("showtraceback")();
-
-        py::list pyerror = m_ipython_shell.attr("last_error");
-
-        xerror error = extract_error(pyerror);
-
-        publish_execution_error(error.m_ename, error.m_evalue, error.m_traceback);
-        error.m_traceback.resize(1);
-        error.m_traceback[0] = code;
-
-        reply["status"] = "error";
-        reply["ename"] = error.m_ename;
-        reply["evalue"] = error.m_evalue;
-        reply["traceback"] = error.m_traceback;
+        const auto error = extract_error(m_ipython_shell.attr("last_error"));
+        publish_execution_error(error.name, error.value, error.traceback);
+        return {
+            {"status", "error"},
+            {"ename", error.name},
+            {"evalue", error.value},
+            {"traceback", code},
+        };
     }
-
-    return reply;
 }
 
 void interpreter::redirect_output() {
-    py::module sys = py::module::import("sys");
-
+    const auto sys = py::module::import("sys");
     sys.attr("stdout") = make_stream("stdout", this);
     sys.attr("stderr") = make_stream("stderr", this);
 }
 
-void interpreter::instanciate_ipython_shell() {
-    m_ipython_shell_app = py::module::import("xeus_python_shell.shell").attr("XPythonShellApp")();
-}
-
-bool interpreter::use_jedi_for_completion() const { return true; }
 } // namespace xpyt

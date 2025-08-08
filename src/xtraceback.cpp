@@ -10,139 +10,110 @@
 
 #include "xeus-python/xtraceback.hpp"
 
-#include "pybind11/pybind11.h"
-#include "xeus-python/xutils.hpp"
+#include "pybind11/stl.h"
 #include "xinternal_utils.hpp"
 
-#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
 
 namespace py = pybind11;
+using namespace py::literals;
 
 namespace xpyt {
-py::str get_filename(const py::str& raw_code) { return get_cell_tmp_file(raw_code); }
 
-using filename_map = std::map<std::string, int>;
-
-filename_map& get_filename_map() {
-    static filename_map fnm;
+std::map<std::string, int>& get_filename_map() {
+    static std::map<std::string, int> fnm;
     return fnm;
 }
 
-void register_filename_mapping(const std::string& filename, int execution_count) {
-    get_filename_map()[filename] = execution_count;
-}
-
 xerror extract_error(const py::list& error) {
-    xerror out;
-
-    out.m_ename = error[0].cast<std::string>();
-    out.m_evalue = error[1].cast<std::string>();
-
-    py::list tb = error[2];
-
-    std::transform(tb.begin(), tb.end(), std::back_inserter(out.m_traceback),
-                   [](py::handle obj) -> std::string { return obj.cast<std::string>(); });
-
-    return out;
+    return {
+        .name = error[0].cast<std::string>(),
+        .value = error[1].cast<std::string>(),
+        .traceback = error[2].cast<std::vector<std::string>>(),
+    };
 }
 
 xerror extract_already_set_error(py::error_already_set& error) {
-    xerror out;
-
-    // Fetch the error message, it must be released by the C++ exception first
-    error.restore();
-
-    py::object py_type;
-    py::object py_value;
-    py::object py_tb;
-    PyErr_Fetch(&py_type.ptr(), &py_value.ptr(), &py_tb.ptr());
-
-    // This should NOT happen
-    if (py_type.is_none()) {
-        out.m_ename = "Error";
-        out.m_evalue = error.what();
-        out.m_traceback.push_back(error.what());
-    } else {
-        out.m_ename = py::str(py_type.attr("__name__"));
-        out.m_evalue = py::str(py_value);
-
-        std::size_t first_frame_size(75);
-        std::string delimiter(first_frame_size, '-');
-        std::string traceback_msg("Traceback (most recent call last)");
-        std::string first_frame_padding(
-            first_frame_size - traceback_msg.size() - out.m_ename.size(), ' ');
-
-        std::stringstream first_frame;
-        first_frame << red_text(delimiter) << "\n"
-                    << red_text(out.m_ename) << first_frame_padding << traceback_msg;
-        out.m_traceback.push_back(first_frame.str());
-
-        if (py_tb.ptr() != nullptr && !py_tb.is_none()) {
-            for (py::handle py_frame : py::module::import("traceback").attr("extract_tb")(py_tb)) {
-                std::string filename;
-                std::string lineno;
-                std::string name;
-                std::string line;
-
-                filename = py::str(py_frame.attr("filename"));
-                lineno = py::str(py_frame.attr("lineno"));
-                name = py::str(py_frame.attr("name"));
-                line = py::str(py_frame.attr("line"));
-
-                // Workaround for py::exec
-                if (filename == "<string>") {
-                    continue;
-                }
-
-                std::stringstream cpp_frame;
-                std::string padding(6 - lineno.size(), ' ');
-                std::string file_prefix;
-                std::string func_name;
-
-                std::string prefix = get_tmp_prefix();
-                // If the error occured in a cell code, extract the line from the given code
-                if (!filename.empty()
-                    && !filename.compare(0, prefix.size(), prefix.c_str(), prefix.size())) {
-                    file_prefix = "In  ";
-                    auto it = get_filename_map().find(filename);
-                    if (it != get_filename_map().end()) {
-                        filename = '[' + std::to_string(it->second) + ']';
-                    }
-                } else {
-                    file_prefix = "File ";
-                    func_name = ", in " + green_text(name);
-                }
-
-                cpp_frame << file_prefix << blue_text(filename) << func_name << ":\n"
-                          << "Line " << blue_text(lineno) << ":" << padding << highlight(line);
-                out.m_traceback.push_back(cpp_frame.str());
-            }
-        }
-
-        std::stringstream last_frame;
-        last_frame << red_text(out.m_ename) << ": " << out.m_evalue << "\n" << red_text(delimiter);
-        out.m_traceback.push_back(last_frame.str());
+    if (error.type().is_none()) { // this should NOT happen
+        return {
+            .name = "Error",
+            .value = error.what(),
+            .traceback = {error.what()},
+        };
     }
+
+    auto out = xerror{
+        .name = py::str(error.type().attr("__name__")),
+        .value = py::str(error.value()),
+        .traceback = {},
+    };
+
+    constexpr auto first_frame_size = std::size_t{75};
+    const auto delimiter = std::string(first_frame_size, '-');
+    constexpr auto traceback_msg = std::string_view("Traceback (most recent call last)");
+    const auto first_frame_padding =
+        std::string(first_frame_size - traceback_msg.size() - out.name.size(), ' ');
+
+    std::stringstream first_frame;
+    first_frame << red_text(delimiter) << "\n"
+                << red_text(out.name) << first_frame_padding << traceback_msg;
+    out.traceback.push_back(first_frame.str());
+
+    if (error.trace() && !error.trace().is_none()) {
+        const auto extract_tb = py::module::import("traceback").attr("extract_tb");
+        for (const auto& py_frame : extract_tb(error.trace())) {
+            auto filename = py_frame.attr("filename").cast<std::string>();
+            if (filename == "<string>") { // Workaround for py::exec
+                continue;
+            }
+
+            const auto lineno = py_frame.attr("lineno").cast<std::string>();
+            const auto name = py_frame.attr("name").cast<std::string>();
+            const auto line = py_frame.attr("line").cast<std::string>();
+
+            std::string file_prefix;
+            std::string func_name;
+
+            // If the error occured in a cell code, extract the line from the given code
+            if (filename.starts_with(get_tmp_prefix())) {
+                file_prefix = "In  ";
+                if (const auto it = get_filename_map().find(filename);
+                    it != get_filename_map().end()) {
+                    filename = '[' + std::to_string(it->second) + ']';
+                }
+            } else {
+                file_prefix = "File ";
+                func_name = ", in " + green_text(name);
+            }
+
+            std::stringstream cpp_frame;
+            std::string padding(6 - lineno.size(), ' ');
+            cpp_frame << file_prefix << blue_text(filename) << func_name << ":\n"
+                      << "Line " << blue_text(lineno) << ":" << padding << highlight(line);
+            out.traceback.push_back(cpp_frame.str());
+        }
+    }
+
+    std::stringstream last_frame;
+    last_frame << red_text(out.name) << ": " << out.value << "\n" << red_text(delimiter);
+    out.traceback.push_back(last_frame.str());
 
     return out;
 }
 
-/********************
- * traceback module *
- ********************/
-
 py::module make_traceback_module() {
-    py::module traceback_module = create_module("traceback");
-
-    traceback_module.def("get_filename", get_filename, py::arg("raw_code"));
-
-    traceback_module.def("register_filename_mapping", register_filename_mapping,
-                         py::arg("filename"), py::arg("execution_count"));
-
-    return traceback_module;
+    return create_module("traceback")
+        .def(
+            "get_filename", [](const py::str& raw_code) { return get_cell_tmp_file(raw_code); },
+            "raw_code"_a)
+        .def(
+            "register_filename_mapping",
+            [](const std::string& filename, int execution_count) {
+                get_filename_map()[filename] = execution_count;
+            },
+            "filename"_a, "execution_count"_a);
 }
 
 } // namespace xpyt

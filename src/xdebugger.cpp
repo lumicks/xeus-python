@@ -8,46 +8,38 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#include <cctype>
-#include <cstdlib>
-#include <fstream>
-#include <iostream>
-#include <string>
-#include <thread>
+#include "xeus-python/xdebugger.hpp"
 
-// This must be included BEFORE pybind
-// otherwise it fails to build on Windows
-// because of the redefinition of snprintf
-#include "nlohmann/json.hpp"
-#include "pybind11/pybind11.h"
 #include "pybind11/stl.h"
 #include "pybind11_json/pybind11_json.hpp"
 #include "xdebugpy_client.hpp"
-#include "xeus-python/xdebugger.hpp"
 #include "xeus-python/xutils.hpp"
 #include "xeus-zmq/xmiddleware.hpp"
 #include "xeus/xinterpreter.hpp"
 #include "xeus/xsystem.hpp"
 #include "xinternal_utils.hpp"
 
-namespace nl = nlohmann;
-namespace py = pybind11;
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <thread>
 
 using namespace pybind11::literals;
 using namespace std::placeholders;
 
 namespace xpyt {
+
 debugger::debugger(xeus::xcontext& context, const xeus::xconfiguration& config,
                    const std::string& user_name, const std::string& session_id,
                    const nl::json& debugger_config)
     : xdebugger_base(context),
-      p_debugpy_client(new xdebugpy_client(context, config, xeus::get_socket_linger(),
-                                           xdap_tcp_configuration(xeus::dap_tcp_type::client,
-                                                                  xeus::dap_init_type::parallel,
-                                                                  user_name, session_id),
-                                           get_event_callback())),
-      m_debugpy_host("127.0.0.1"), m_debugpy_port(""), m_debugger_config(debugger_config) {
-    m_debugpy_port = xeus::find_free_port(100, 5678, 5900);
+      p_debugpy_client(std::make_unique<xdebugpy_client>(
+          context, config, xeus::get_socket_linger(),
+          xdap_tcp_configuration(xeus::dap_tcp_type::client, xeus::dap_init_type::parallel,
+                                 user_name, session_id),
+          get_event_callback())),
+      m_debugpy_host("127.0.0.1"), m_debugpy_port(xeus::find_free_port(100, 5678, 5900)),
+      m_debugger_config(debugger_config) {
     register_request_handler("inspectVariables",
                              std::bind(&debugger::inspect_variables_request, this, _1), false);
     register_request_handler("richInspectVariables",
@@ -60,18 +52,13 @@ debugger::debugger(xeus::xcontext& context, const xeus::xconfiguration& config,
 }
 
 debugger::~debugger() {
-    py::gil_scoped_acquire acquire;
+    const auto gil = py::gil_scoped_acquire{};
     m_pydebugger = {};
-
-    delete p_debugpy_client;
-    p_debugpy_client = nullptr;
 }
 
 nl::json debugger::inspect_variables_request(const nl::json& message) {
-    py::gil_scoped_acquire acquire;
-    py::object pymessage = message;
-    nl::json reply = m_pydebugger.attr("inspect_variables")(pymessage);
-    return reply;
+    const auto gil = py::gil_scoped_acquire{};
+    return m_pydebugger.attr("inspect_variables")(message);
 }
 
 nl::json debugger::rich_inspect_variables_request(const nl::json& message) {
@@ -94,7 +81,7 @@ nl::json debugger::rich_inspect_variables_request(const nl::json& message) {
     std::string var_repr_data = var_name + "_repr_data";
     std::string var_repr_metadata = var_name + "_repr_metada";
 
-    if (base_type::get_stopped_threads().empty()) {
+    if (get_stopped_threads().empty()) {
         // The code did not hit a breakpoint, we use the interpreter
         // to get the rich representation of the variable
         std::string code = "from IPython import get_ipython;";
@@ -142,7 +129,7 @@ nl::json debugger::rich_inspect_variables_request(const nl::json& message) {
 }
 
 nl::json debugger::attach_request(const nl::json& message) {
-    nl::json new_message = message;
+    auto new_message = message;
     new_message["arguments"]["connect"] = {{"host", m_debugpy_host},
                                            {"port", std::stoi(m_debugpy_port)}};
     new_message["arguments"]["logToFile"] = true;
@@ -150,149 +137,103 @@ nl::json debugger::attach_request(const nl::json& message) {
 }
 
 nl::json debugger::configuration_done_request(const nl::json& message) {
-    int seq = message["seq"].get<int>();
-    nl::json reply = {{"seq", seq},
-                      {"type", "response"},
-                      {"request_seq", message["seq"]},
-                      {"success", true},
-                      {"command", message["command"]}};
-    return reply;
+    return {{"seq", message["seq"].get<int>()},
+            {"type", "response"},
+            {"request_seq", message["seq"]},
+            {"success", true},
+            {"command", message["command"]}};
 }
 
 nl::json debugger::copy_to_globals_request(const nl::json& message) {
-    // This request cannot be processed if the version of debugpy is lower than 1.6.5.
-    if (!m_copy_to_globals_available) {
-        nl::json reply = {{"type", "response"},
-                          {"request_seq", message["seq"]},
-                          {"success", false},
-                          {"command", message["command"]},
-                          {"body", "The debugpy version must be greater than or equal 1.6.5 to "
-                                   "allow copying a variable to the global scope."}};
-        return reply;
-    }
-
-    std::string src_var_name = message["arguments"]["srcVariableName"].get<std::string>();
-    std::string dst_var_name = message["arguments"]["dstVariableName"].get<std::string>();
-    int src_frame_id = message["arguments"]["srcFrameId"].get<int>();
-
     // It basically runs a setExpression in the globals dictionary of Python.
-    int seq = message["seq"].get<int>();
-    std::string expression = "globals()['" + dst_var_name + "']";
-    nl::json request = {
+    const auto& args = message["arguments"];
+    return forward_message({
         {"type", "request"},
         {"command", "setExpression"},
-        {"seq", seq + 1},
-        {"arguments",
-         {{"expression", expression}, {"value", src_var_name}, {"frameId", src_frame_id}}}};
-    return forward_message(request);
+        {"seq", message["seq"].get<int>() + 1},
+        {
+            "arguments",
+            {
+                {"expression", "globals()['" + args["dstVariableName"].get<std::string>() + "']"},
+                {"value", args["srcVariableName"].get<std::string>()},
+                {"frameId", args["srcFrameId"].get<int>()},
+            },
+        },
+    });
 }
 
 nl::json debugger::variables_request_impl(const nl::json& message) {
-    if (base_type::get_stopped_threads().empty()) {
-        py::gil_scoped_acquire acquire;
-        py::object pymessage = message;
-        nl::json reply = m_pydebugger.attr("variables")(pymessage);
-        return reply;
-    } else {
-        nl::json rep = base_type::variables_request_impl(message);
-        py::gil_scoped_acquire acquire;
-        py::object pymessage = message;
-        py::object pyvariables = rep["body"]["variables"];
-        nl::json reply = m_pydebugger.attr("build_variables_response")(pymessage, pyvariables);
-        return reply;
+    if (get_stopped_threads().empty()) {
+        const auto gil = py::gil_scoped_acquire{};
+        return m_pydebugger.attr("variables")(message);
     }
+
+    const auto rep = xdebugger_base::variables_request_impl(message);
+    const auto gil = py::gil_scoped_acquire{};
+    return m_pydebugger.attr("build_variables_response")(message, rep["body"]["variables"]);
 }
 
 bool debugger::start_debugpy() {
-    // import debugpy
-    std::string code = "import debugpy;";
-    // specify sys.executable
     if (std::getenv("XEUS_LOG") != nullptr) {
         std::ofstream out("xeus.log", std::ios_base::app);
         out << "===== DEBUGGER CONFIG =====" << std::endl;
         out << m_debugger_config.dump() << std::endl;
     }
-    auto it = m_debugger_config.find("python");
-    if (it != m_debugger_config.end()) {
-        code += "debugpy.configure({\'python\': r\'" + it->template get<std::string>() + "\'});";
+
+    std::string code = "import debugpy;";
+    if (auto it = m_debugger_config.find("python"); it != m_debugger_config.end()) {
+        code += "debugpy.configure({\'python\': r\'" + it->get<std::string>() + "\'});";
     }
-    // call to debugpy.listen
     code += "debugpy.listen((\'" + m_debugpy_host + "\'," + m_debugpy_port + "))";
-    nl::json json_code;
-    json_code["code"] = code;
-    nl::json rep = xdebugger::get_control_messenger().send_to_shell(json_code);
-    std::string status = rep["status"].get<std::string>();
+
+    const auto rep = get_control_messenger().send_to_shell({"code", code});
+    const auto status = rep["status"].get<std::string>();
     if (status != "ok") {
-        std::string ename = rep["ename"].get<std::string>();
-        std::string evalue = rep["evalue"].get<std::string>();
-        std::vector<std::string> traceback = rep["traceback"].get<std::vector<std::string>>();
         std::clog << "Exception raised when trying to import debugpy" << std::endl;
-        for (std::size_t i = 0; i < traceback.size(); ++i) {
-            std::clog << traceback[i] << std::endl;
+        for (const auto& line : rep["traceback"].get<std::vector<std::string>>()) {
+            std::clog << line << std::endl;
         }
-        std::clog << ename << " - " << evalue << std::endl;
+        std::clog << rep["ename"].get<std::string>() << " - " << rep["evalue"].get<std::string>()
+                  << std::endl;
     } else {
-        py::gil_scoped_acquire acquire;
-        py::module xeus_python_shell = py::module::import("xeus_python_shell.debugger");
-        m_pydebugger = xeus_python_shell.attr("XDebugger")();
-
-        // Get debugpy version
-        std::string expression = "debugpy.__version__";
-        std::string version = (eval(py::str(expression))).cast<std::string>();
-
-        // Format the version to match [0-9]+(\s[0-9]+)*
-        size_t pos = version.find_first_of("abrc");
-        if (pos != std::string::npos) {
-            version.erase(pos, version.length() - pos);
-        }
-        std::replace(version.begin(), version.end(), '.', ' ');
-
-        // Check if the copy_to_globals feature is available
-        m_copy_to_globals_available = !less_than_version(version, "1 6 5");
+        const auto gil = py::gil_scoped_acquire{};
+        m_pydebugger = py::module::import("xeus_python_shell.debugger").attr("XDebugger")();
     }
     return status == "ok";
 }
 
 bool debugger::start() {
-    std::string temp_dir = xeus::get_temp_directory_path();
-    std::string log_dir =
-        temp_dir + "/" + "xpython_debug_logs_" + std::to_string(xeus::get_current_pid());
-
-    xeus::create_directory(log_dir);
+    xeus::create_directory(xeus::get_temp_directory_path() + "/xpython_debug_logs_"
+                           + std::to_string(xeus::get_current_pid()));
 
     static bool debugpy_started = start_debugpy();
     if (!debugpy_started) {
         return false;
     }
 
-    std::string controller_end_point = xeus::get_controller_end_point("debugger");
-    std::string controller_header_end_point = xeus::get_controller_end_point("debugger_header");
-    std::string publisher_end_point = xeus::get_publisher_end_point();
-
+    const auto controller_end_point = xeus::get_controller_end_point("debugger");
+    const auto controller_header_end_point = xeus::get_controller_end_point("debugger_header");
     bind_sockets(controller_header_end_point, controller_end_point);
 
-    std::string debugpy_end_point = "tcp://" + m_debugpy_host + ':' + m_debugpy_port;
-    std::thread client(&xdap_tcp_client::start_debugger, p_debugpy_client, debugpy_end_point,
-                       publisher_end_point, controller_end_point, controller_header_end_point);
-    client.detach();
+    const auto debugpy_end_point = "tcp://" + m_debugpy_host + ':' + m_debugpy_port;
+    std::thread(&xdap_tcp_client::start_debugger, p_debugpy_client.get(), debugpy_end_point,
+                xeus::get_publisher_end_point(), controller_end_point, controller_header_end_point)
+        .detach();
 
     send_recv_request("REQ");
-
-    std::string tmp_folder = get_tmp_prefix();
-    xeus::create_directory(tmp_folder);
-
+    xeus::create_directory(get_tmp_prefix());
     return true;
 }
 
 void debugger::stop() {
-    std::string controller_end_point = xeus::get_controller_end_point("debugger");
-    std::string controller_header_end_point = xeus::get_controller_end_point("debugger_header");
-    unbind_sockets(controller_header_end_point, controller_end_point);
+    unbind_sockets(xeus::get_controller_end_point("debugger_header"),
+                   xeus::get_controller_end_point("debugger"));
 }
 
 xeus::xdebugger_info debugger::get_debugger_info() const {
-    return xeus::xdebugger_info(xeus::get_tmp_hash_seed(), get_tmp_prefix(), get_tmp_suffix(), true,
-                                {"Python Exceptions"}, true);
+    return {xeus::get_tmp_hash_seed(), get_tmp_prefix(),
+            get_tmp_suffix(),          true,
+            {"Python Exceptions"},     true};
 }
 
 std::string debugger::get_cell_temporary_file(const std::string& code) const {
@@ -304,7 +245,7 @@ std::unique_ptr<xeus::xdebugger> make_python_debugger(xeus::xcontext& context,
                                                       const std::string& user_name,
                                                       const std::string& session_id,
                                                       const nl::json& debugger_config) {
-    return std::unique_ptr<xeus::xdebugger>(
-        new debugger(context, config, user_name, session_id, debugger_config));
+    return std::make_unique<debugger>(context, config, user_name, session_id, debugger_config);
 }
+
 } // namespace xpyt

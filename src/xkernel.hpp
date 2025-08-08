@@ -8,8 +8,7 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_KERNEL_HPP
-#define XPYT_KERNEL_HPP
+#pragma once
 
 #include "pybind11/pybind11.h"
 #include "xeus/xinterpreter.hpp"
@@ -17,9 +16,5 @@
 namespace py = pybind11;
 
 namespace xpyt {
-py::module make_kernel_module();
-
 py::object make_kernel(xeus::xinterpreter* xint);
 } // namespace xpyt
-
-#endif

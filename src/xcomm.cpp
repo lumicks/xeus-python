@@ -10,90 +10,63 @@
 
 #include "xeus/xcomm.hpp"
 
-#include "nlohmann/json.hpp"
-#include "pybind11/eval.h"
-#include "pybind11/functional.h"
-#include "pybind11/pybind11.h"
 #include "pybind11_json/pybind11_json.hpp"
 #include "xcomm.hpp"
 #include "xeus-python/xutils.hpp"
-#include "xeus/xinterpreter.hpp"
 #include "xinternal_utils.hpp"
 
 #include <string>
 #include <utility>
 
-namespace py = pybind11;
-namespace nl = nlohmann;
 using namespace pybind11::literals;
 
 namespace xpyt {
+namespace {
 
-/************************
- * xcomm implementation *
- ************************/
-
-xcomm::xcomm(xeus::xinterpreter* xint, const py::object& target_name, const py::object& data,
-             const py::object& metadata, const py::object& buffers, const py::kwargs& kwargs)
-    : m_comm(target(xint, target_name), id(kwargs)) {
-    m_comm.open(metadata, data, pylist_to_cpp_buffers(buffers));
-}
-
-xcomm::xcomm(xeus::xcomm&& comm) : m_comm(std::move(comm)) {}
-
-xcomm::~xcomm() {}
-
-std::string xcomm::comm_id() const { return m_comm.id(); }
-
-bool xcomm::kernel() const { return true; }
-
-void xcomm::close(const py::object& data, const py::object& metadata, const py::object& buffers) {
-    m_comm.close(metadata, data, pylist_to_cpp_buffers(buffers));
-}
-
-void xcomm::send(const py::object& data, const py::object& metadata, const py::object& buffers) {
-    m_comm.send(metadata, data, pylist_to_cpp_buffers(buffers));
-}
-
-void xcomm::on_msg(const python_callback_type& callback) {
-    m_comm.on_message(cpp_callback(callback));
-}
-
-void xcomm::on_close(const python_callback_type& callback) {
-    m_comm.on_close(cpp_callback(callback));
-}
-
-xeus::xtarget* xcomm::target(xeus::xinterpreter* xint, const py::object& target_name) const {
-    return xint->comm_manager().target(target_name.cast<std::string>());
-}
-
-xeus::xguid xcomm::id(const py::kwargs& kwargs) const {
+xeus::xguid get_comm_id(const py::kwargs& kwargs) {
     if (py::hasattr(kwargs, "comm_id")) {
-        // TODO: prevent copy
-        return xeus::xguid(kwargs["comm_id"].cast<std::string>());
-    } else {
-        return xeus::new_xguid();
+        const auto sv = kwargs["comm_id"].cast<std::string_view>();
+        return xeus::xguid(sv.begin(), sv.end());
     }
+    return xeus::new_xguid();
 }
 
-auto xcomm::cpp_callback(const python_callback_type& py_callback) const -> cpp_callback_type {
+std::function<void(const xeus::xmessage&)>
+cpp_callback(const std::function<void(py::object)>& py_callback) {
     return [py_callback](const xeus::xmessage& msg) {
         XPYT_HOLDING_GIL(py_callback(cppmessage_to_pymessage(msg)))
     };
 }
 
-void xcomm_manager::register_target(const py::str& target_name, const py::object& callback) {
-    auto target_callback = [callback](xeus::xcomm&& comm, const xeus::xmessage& msg) {
-        XPYT_HOLDING_GIL(callback(xcomm(std::move(comm)), cppmessage_to_pymessage(msg)));
-    };
+} // namespace
 
-    m_xint->comm_manager().register_comm_target(static_cast<std::string>(target_name),
-                                                target_callback);
-}
+class xcomm {
+public:
+    xcomm(xeus::xinterpreter* xint, const std::string& target_name, xeus::xguid guid,
+          const nl::json& data, const nl::json& metadata, const py::object& buffers)
+        : m_comm(xint->comm_manager().target(target_name), guid) {
+        m_comm.open(metadata, data, pylist_to_cpp_buffers(buffers));
+    }
+    explicit xcomm(xeus::xcomm&& comm) : m_comm(std::move(comm)) {}
 
-/***************
- * comm module *
- ***************/
+    std::string comm_id() const { return m_comm.id(); }
+
+    void close(const py::object& data, const py::object& metadata, const py::object& buffers) {
+        m_comm.close(metadata, data, pylist_to_cpp_buffers(buffers));
+    }
+    void send(const py::object& data, const py::object& metadata, const py::object& buffers) {
+        m_comm.send(metadata, data, pylist_to_cpp_buffers(buffers));
+    }
+    void on_msg(const std::function<void(py::object)>& callback) {
+        m_comm.on_message(cpp_callback(callback));
+    }
+    void on_close(const std::function<void(py::object)>& callback) {
+        m_comm.on_close(cpp_callback(callback));
+    }
+
+private:
+    xeus::xcomm m_comm;
+};
 
 py::handle bind_comm() {
     static auto h = py::class_<xcomm>({}, "Comm")
@@ -104,9 +77,18 @@ py::handle bind_comm() {
                         .def("on_msg", &xcomm::on_msg)
                         .def("on_close", &xcomm::on_close)
                         .def_property_readonly("comm_id", &xcomm::comm_id)
-                        .def_property_readonly("kernel", &xcomm::kernel)
+                        .def_property_readonly("kernel", [](xcomm&) { return true; })
                         .release();
     return h;
+}
+
+void xcomm_manager::register_target(const std::string& target_name,
+                                    const py::object& callback) const {
+    auto target_callback = [callback](xeus::xcomm&& comm, const xeus::xmessage& msg) {
+        XPYT_HOLDING_GIL(callback(xcomm(std::move(comm)), cppmessage_to_pymessage(msg)));
+    };
+
+    m_xint->comm_manager().register_comm_target(target_name, target_callback);
 }
 
 py::handle bind_comm_manager() {
@@ -117,21 +99,18 @@ py::handle bind_comm_manager() {
 }
 
 py::module make_comm_module(xeus::xinterpreter* xint) {
-    py::module comm_module = create_module("comm");
+    bind_comm();
+    bind_comm_manager();
 
-    comm_module.attr("Comm") = bind_comm();
-    comm_module.def(
-        "create_comm",
-        [xint](const py::object& target_name, const py::object& data, const py::object& metadata,
-               const py::object& buffers, py::kwargs kwargs) {
-            return xcomm(xint, target_name, data, metadata, buffers, kwargs);
-        },
-        "target_name"_a = "", "data"_a = py::dict(), "metadata"_a = py::dict(),
-        "buffers"_a = py::list());
-
-    comm_module.attr("CommManager") = bind_comm_manager();
-    comm_module.def("get_comm_manager", [xint]() { return xcomm_manager(xint); });
-
-    return comm_module;
+    return create_module("comm")
+        .def(
+            "create_comm",
+            [xint](const std::string& target_name, const nl::json& data, const nl::json& metadata,
+                   const py::object& buffers, const py::kwargs& kwargs) {
+                return xcomm(xint, target_name, get_comm_id(kwargs), data, metadata, buffers);
+            },
+            "target_name"_a = "", "data"_a = py::dict(), "metadata"_a = py::dict(),
+            "buffers"_a = py::list())
+        .def("get_comm_manager", [xint]() { return xcomm_manager(xint); });
 }
 } // namespace xpyt

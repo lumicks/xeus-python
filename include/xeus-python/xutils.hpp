@@ -8,15 +8,11 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_UTILS_HPP
-#define XPYT_UTILS_HPP
+#pragma once
 
 #include "nlohmann/json.hpp"
 #include "pybind11/pybind11.h"
-#include "xeus/xcomm.hpp"
 #include "xeus_python_config.hpp"
-
-#include <vector>
 
 namespace py = pybind11;
 namespace nl = nlohmann;
@@ -39,17 +35,4 @@ XEUS_PYTHON_API XPYT_FORCE_PYBIND11_EXPORT void exec(const py::object& code,
 XEUS_PYTHON_API XPYT_FORCE_PYBIND11_EXPORT py::object eval(const py::object& code,
                                                            const py::object& scope = py::globals());
 
-XEUS_PYTHON_API
-void sigsegv_handler(int sig);
-
-XEUS_PYTHON_API
-void sigkill_handler(int sig);
-
-XEUS_PYTHON_API
-void print_pythonhome();
-
-XEUS_PYTHON_API
-bool less_than_version(std::string a, std::string b);
 } // namespace xpyt
-
-#endif

@@ -8,29 +8,24 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_DEBUGPY_CLIENT_HPP
-#define XPYT_DEBUGPY_CLIENT_HPP
+#pragma once
 
 #include "xeus-zmq/xdap_tcp_client.hpp"
 
 namespace xpyt {
+
 using xeus::xdap_tcp_client;
 using xeus::xdap_tcp_configuration;
 
 class xdebugpy_client : public xdap_tcp_client {
 public:
-    using base_type = xdap_tcp_client;
-    using event_callback = base_type::event_callback;
-
     xdebugpy_client(xeus::xcontext& context, const xeus::xconfiguration& config, int socket_linger,
-                    const xdap_tcp_configuration& dap_config, const event_callback& cb);
-
-    virtual ~xdebugpy_client() = default;
+                    const xdap_tcp_configuration& dap_config, const event_callback& cb)
+        : xdap_tcp_client(context, config, socket_linger, dap_config, cb) {}
 
 private:
     void handle_event(nl::json message) override;
     nl::json get_stack_frames(int thread_id, int seq);
 };
-} // namespace xpyt
 
-#endif
+} // namespace xpyt

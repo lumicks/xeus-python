@@ -8,8 +8,7 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_STREAM_HPP
-#define XPYT_STREAM_HPP
+#pragma once
 
 #include "pybind11/pybind11.h"
 #include "xeus/xinterpreter.hpp"
@@ -17,8 +16,6 @@
 namespace py = pybind11;
 
 namespace xpyt {
-py::module make_stream_module();
 py::object make_stream(const std::string& name, xeus::xinterpreter* xint);
+py::object make_terminal_stream();
 } // namespace xpyt
-
-#endif

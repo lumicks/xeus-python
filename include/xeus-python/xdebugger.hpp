@@ -8,22 +8,12 @@
  * The full license is in the file LICENSE, distributed with this software. *
  ****************************************************************************/
 
-#ifndef XPYT_DEBUGGER_HPP
-#define XPYT_DEBUGGER_HPP
-
-#ifdef __GNUC__
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wattributes"
-#endif
+#pragma once
 
 #include "nlohmann/json.hpp"
 #include "pybind11/pybind11.h"
 #include "xeus-zmq/xdebugger_base.hpp"
 #include "xeus_python_config.hpp"
-
-#include <map>
-#include <mutex>
-#include <set>
 
 namespace py = pybind11;
 
@@ -33,13 +23,10 @@ class xdebugpy_client;
 
 class XEUS_PYTHON_API debugger : public xeus::xdebugger_base {
 public:
-    using base_type = xeus::xdebugger_base;
-
     debugger(xeus::xcontext& context, const xeus::xconfiguration& config,
              const std::string& user_name, const std::string& session_id,
              const nl::json& debugger_config);
-
-    virtual ~debugger();
+    ~debugger() override;
 
 private:
     nl::json inspect_variables_request(const nl::json& message);
@@ -56,12 +43,11 @@ private:
     xeus::xdebugger_info get_debugger_info() const override;
     std::string get_cell_temporary_file(const std::string& code) const override;
 
-    xdebugpy_client* p_debugpy_client;
+    std::unique_ptr<xdebugpy_client> p_debugpy_client;
     std::string m_debugpy_host;
     std::string m_debugpy_port;
     nl::json m_debugger_config;
     py::object m_pydebugger;
-    bool m_copy_to_globals_available;
 };
 
 XEUS_PYTHON_API
@@ -71,9 +57,3 @@ std::unique_ptr<xeus::xdebugger> make_python_debugger(xeus::xcontext& context,
                                                       const std::string& session_id,
                                                       const nl::json& debugger_config);
 } // namespace xpyt
-
-#ifdef __GNUC__
-#  pragma GCC diagnostic pop
-#endif
-
-#endif

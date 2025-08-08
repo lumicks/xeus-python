@@ -101,8 +101,6 @@ set(XEUS_PYTHON_SRC
     src/xdisplay.hpp
     src/xinput.cpp
     src/xinput.hpp
-    src/xinspect.cpp
-    src/xinspect.hpp
     src/xinternal_utils.cpp
     src/xinternal_utils.hpp
     src/xinterpreter.cpp
@@ -143,14 +141,6 @@ macro(xpyt_set_common_options target_name)
         CMAKE_CXX_COMPILER_ID MATCHES "Intel")
         target_compile_options(${target_name} PUBLIC -Wunused-parameter -Wextra -Wreorder)
     endif ()
-endmacro()
-
-# Common macro kernels (xpython and xpython_extension)
-macro(xpyt_set_kernel_options target_name)
-    if(XPYT_ENABLE_PYPI_WARNING)
-        message(STATUS "Enabling PyPI warning for target: " ${target_name})
-        target_compile_definitions(${target_name} PRIVATE XEUS_PYTHON_PYPI_WARNING)
-    endif()
 endmacro()
 
 # Common macro for linking targets
@@ -255,7 +245,6 @@ if (XPYT_BUILD_XPYTHON_EXECUTABLE)
     target_link_libraries(xpython PRIVATE pybind11::embed)
 
     xpyt_set_common_options(xpython)
-    xpyt_set_kernel_options(xpython)
     xpyt_target_link_libraries(xpython)
 endif()
 
